@@ -2,6 +2,8 @@ export type GameState = 'title' | 'playing' | 'paused' | 'levelup' | 'gameover';
 
 export type EnemyKind = 'swarmer' | 'splitter' | 'mini' | 'sniper' | 'warden' | 'boss';
 
+export type PowerUpKind = 'heal' | 'magnet' | 'overclock';
+
 export interface ThemePalette {
   id: string;
   name: string;
@@ -26,7 +28,7 @@ export interface UpgradeDef {
 
 export interface PlayerStats {
   moveSpeed: number;
-  fireRate: number; // shots per second
+  fireRate: number;
   damage: number;
   projectileSpeed: number;
   projectiles: number;
@@ -41,6 +43,7 @@ export interface PlayerStats {
   vampiricChance: number;
   pickupRadius: number;
   critChance: number;
+  aegisShieldCooldown: number;
 }
 
 export interface Player {
@@ -60,10 +63,15 @@ export interface Player {
   dashDirX: number;
   dashDirY: number;
   invulnTimer: number;
-  novaCharge: number; // 0 to 100
+  novaCharge: number;
+  overclockTimer: number;
+  shieldReady: boolean;
+  shieldTimer: number;
   fireCooldown: number;
   shotCounter: number;
   trail: Array<{ x: number; y: number; alpha: number }>;
+  wingLeftTrail: Array<{ x: number; y: number; alpha: number }>;
+  wingRightTrail: Array<{ x: number; y: number; alpha: number }>;
   afterimages: Array<{ x: number; y: number; angle: number; alpha: number }>;
   bladeAngle: number;
 }
@@ -109,6 +117,14 @@ export interface Enemy {
   spin: number;
 }
 
+export interface PowerUp {
+  x: number;
+  y: number;
+  kind: PowerUpKind;
+  life: number;
+  pulse: number;
+}
+
 export interface Particle {
   x: number;
   y: number;
@@ -150,6 +166,7 @@ export interface XpOrb {
   value: number;
   color: string;
   pulse: number;
+  magnetized?: boolean;
 }
 
 export interface FloatingText {

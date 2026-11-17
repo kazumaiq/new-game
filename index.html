@@ -1,42 +1,47 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>AETHER RIFT — Cosmic Neon Arena Roguelite</title>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>AETHER RIFT — Неоновый Космический Рогалик</title>
     <meta
       name="description"
-      content="Pilot your neon starfighter through an infinite bioluminescent cosmic arena. Draft roguelite upgrades, chain lightning, and survive the Monolith."
+      content="Управляй неоновым истребителем в бесконечной биолюминесцентной арене. Собирай апгрейды, бей цепной молнией и уничтожь Монолит."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Exo+2:wght@600;700;900&family=Space+Grotesk:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
   </head>
   <body>
     <canvas id="game-canvas"></canvas>
 
-    <!-- WAVE BANNER -->
+    <!-- БАННЕР ВОЛНЫ -->
     <div id="wave-banner" class="wave-banner hidden">
-      <div id="wave-banner-title" class="wave-banner-title">WAVE 01</div>
-      <div id="wave-banner-sub" class="wave-banner-sub">SECTOR BREACH DETECTED</div>
+      <div id="wave-banner-title" class="wave-banner-title">ВОЛНА 01</div>
+      <div id="wave-banner-sub" class="wave-banner-sub">ПРОРЫВ ПЕРИМЕТРА СЕКТОРА</div>
     </div>
 
-    <!-- IN-GAME HUD -->
+    <!-- ВНУТРИИГРОВОЙ HUD -->
     <div id="hud" class="hud hidden">
       <div class="hud-top">
         <div class="hud-panel hud-vitals">
           <div class="vital-row">
-            <span class="label">HULL</span>
+            <span class="label">КОРПУС</span>
             <div class="bar-track">
               <div id="hp-bar" class="bar-fill hp-fill" style="width: 100%"></div>
             </div>
             <span id="hp-text" class="value">100/100</span>
           </div>
           <div class="vital-row">
-            <span id="lvl-label" class="label">LVL 1</span>
+            <span id="lvl-label" class="label">УР. 1</span>
             <div class="bar-track xp-track">
               <div id="xp-bar" class="bar-fill xp-fill" style="width: 0%"></div>
             </div>
@@ -45,11 +50,12 @@
 
         <div class="hud-center">
           <div class="wave-pill">
-            <span>WAVE</span>
+            <span>ВОЛНА</span>
             <strong id="hud-wave">01</strong>
           </div>
+          <div id="overclock-pill" class="overclock-pill hidden">⚡ ПЕРЕГРУЗКА x2</div>
           <div id="boss-bar-wrap" class="boss-bar-wrap hidden">
-            <div id="boss-name" class="boss-name">THE MONOLITH</div>
+            <div id="boss-name" class="boss-name">МОНОЛИТ ПУСТОТЫ</div>
             <div class="boss-track">
               <div id="boss-bar" class="boss-fill" style="width: 100%"></div>
             </div>
@@ -58,16 +64,16 @@
 
         <div class="hud-panel hud-score-panel">
           <div class="score-block">
-            <span class="label">SCORE</span>
+            <span class="label">СЧЁТ</span>
             <strong id="hud-score" class="score-val">0</strong>
           </div>
           <div id="combo-badge" class="combo-badge hidden">
             <span id="combo-mult">x2</span>
-            <small id="combo-count">10 HITS</small>
+            <small id="combo-count">10 УДАРОВ</small>
           </div>
           <div class="hud-actions">
-            <button id="btn-mute" class="icon-btn" title="Toggle Audio">🔊</button>
-            <button id="btn-pause" class="icon-btn" title="Pause (Esc)">⏸</button>
+            <button id="btn-mute" class="icon-btn" title="Звук">🔊</button>
+            <button id="btn-pause" class="icon-btn" title="Пауза (Esc)">⏸</button>
           </div>
         </div>
       </div>
@@ -76,139 +82,144 @@
         <div id="upgrade-strip" class="upgrade-strip"></div>
         <div class="ability-bar">
           <button id="btn-dash" class="ability-pill">
-            <span class="key-hint">SPACE</span>
-            <span class="ab-name">PHASE DASH</span>
+            <span class="key-hint">ПРОБЕЛ / ТАП</span>
+            <span class="ab-name">⚡ ФАЗОВЫЙ РЫВОК</span>
             <div class="ab-track"><div id="dash-bar" class="ab-fill"></div></div>
           </button>
           <button id="btn-nova" class="ability-pill nova-pill">
             <span class="key-hint">E / SHIFT</span>
-            <span class="ab-name">AETHER NOVA</span>
+            <span class="ab-name">💥 ЭФИРНАЯ НОВА</span>
             <div class="ab-track"><div id="nova-bar" class="ab-fill nova-fill"></div></div>
           </button>
         </div>
       </div>
     </div>
 
-    <!-- TITLE SCREEN -->
+    <!-- ГЛАВНЫЙ ЭКРАН -->
     <div id="title-screen" class="overlay">
       <div class="title-card glass-panel">
         <div class="badge-row">
           <span class="live-dot"></span>
-          <span>60FPS WEBGL/CANVAS ARCADE ROGUELITE</span>
+          <span>60 FPS НЕОНОВЫЙ АРКАДНЫЙ РОГАЛИК</span>
         </div>
         <h1 class="game-title">AETHER <span>RIFT</span></h1>
         <p class="game-tagline">
-          Pilot your starfighter through an infinite bioluminescent void. Chain lightning, bend ballistics, and shatter the Monolith.
+          Веди неоновый истребитель сквозь бесконечную космическую бездну. Собирай апгрейды, бей цепной молнией и сокруши Монолит.
         </p>
 
         <div class="theme-section">
-          <div class="section-label">SELECT CHASSIS SPECTRUM</div>
+          <div class="section-label">ВЫБЕРИ СПЕКТР КОРПУСА</div>
           <div id="theme-grid" class="theme-grid"></div>
         </div>
 
         <div class="cta-row">
           <button id="btn-start" class="btn-primary">
-            <span>LAUNCH MISSION</span>
+            <span>НАЧАТЬ МИССИЮ</span>
             <span class="arrow">→</span>
           </button>
-          <button id="btn-controls" class="btn-secondary">CONTROLS &amp; FX</button>
-          <button id="btn-scores" class="btn-secondary">HALL OF FAME</button>
+          <button id="btn-controls" class="btn-secondary">УПРАВЛЕНИЕ И FX</button>
+          <button id="btn-scores" class="btn-secondary">ЗАЛ СЛАВЫ</button>
         </div>
 
         <div class="quick-controls-hint">
-          <span><b>WASD</b> Move</span>
-          <span><b>MOUSE</b> Aim &amp; Fire</span>
-          <span><b>SPACE</b> Phase Dash</span>
-          <span><b>E / SHIFT</b> Aether Nova</span>
+          <span><b>WASD / Стик</b> Полёт</span>
+          <span><b>Мышь / Авто</b> Прицел</span>
+          <span><b>Пробел</b> Рывок</span>
+          <span><b>E / Shift</b> Нова</span>
         </div>
       </div>
     </div>
 
-    <!-- LEVEL UP MODAL -->
+    <!-- ЭКРАН ПОВЫШЕНИЯ УРОВНЯ -->
     <div id="levelup-screen" class="overlay hidden">
       <div class="modal-wrap">
         <div class="modal-header">
-          <div class="modal-kicker">SYSTEM OVERCLOCK</div>
-          <h2>CHOOSE AN UPGRADE</h2>
-          <p>Select with click or press <b>1</b>, <b>2</b>, <b>3</b></p>
+          <div class="modal-kicker">ПЕРЕГРУЗКА СИСТЕМ</div>
+          <h2>ВЫБЕРИ УЛУЧШЕНИЕ</h2>
+          <p>Нажми на карточку или клавиши <b>1</b>, <b>2</b>, <b>3</b></p>
         </div>
         <div id="upgrade-cards" class="upgrade-cards"></div>
       </div>
     </div>
 
-    <!-- PAUSE MODAL -->
+    <!-- ПАУЗА -->
     <div id="pause-screen" class="overlay hidden">
       <div class="glass-panel compact-panel">
-        <h2>MISSION PAUSED</h2>
+        <h2>ПАУЗА</h2>
         <div class="settings-list" id="pause-settings"></div>
         <div class="cta-col">
-          <button id="btn-resume" class="btn-primary">RESUME</button>
-          <button id="btn-quit" class="btn-secondary">RETURN TO HANGAR</button>
+          <button id="btn-resume" class="btn-primary">ПРОДОЛЖИТЬ</button>
+          <button id="btn-quit" class="btn-secondary">В АНГАР</button>
         </div>
       </div>
     </div>
 
-    <!-- CONTROLS & FX MODAL -->
+    <!-- УПРАВЛЕНИЕ И НАСТРОЙКИ -->
     <div id="controls-screen" class="overlay hidden">
       <div class="glass-panel compact-panel">
-        <h2>FLIGHT SYSTEMS &amp; FX</h2>
+        <h2>УПРАВЛЕНИЕ И ЭФФЕКТЫ</h2>
         <div class="controls-grid">
-          <div><b>WASD / Arrows</b></div><div>Thruster Movement</div>
-          <div><b>Mouse / Auto-Fire</b></div><div>360° Plasma Aim</div>
-          <div><b>Space / Right-Click</b></div><div>Invulnerable Phase Dash</div>
-          <div><b>E / Shift</b></div><div>Aether Nova Shockwave (100% Charge)</div>
-          <div><b>Esc</b></div><div>Pause &amp; Settings</div>
+          <div><b>WASD / Стрелки</b></div><div>Полёт на ПК (или левый палец на телефоне)</div>
+          <div><b>Мышь / Авто-наведение</b></div><div>Прицел 360° (на телефоне авто-прицел!)</div>
+          <div><b>Пробел / ПКМ</b></div><div>Фазовый Рывок с неуязвимостью</div>
+          <div><b>E / Shift</b></div><div>Эфирная Нова (при 100% заряда)</div>
+          <div><b>Esc</b></div><div>Пауза и настройки</div>
         </div>
         <div class="settings-list" id="title-settings"></div>
-        <button id="btn-close-controls" class="btn-primary">BACK</button>
+        <button id="btn-close-controls" class="btn-primary">НАЗАД</button>
       </div>
     </div>
 
-    <!-- HALL OF FAME MODAL -->
+    <!-- ЗАЛ СЛАВЫ -->
     <div id="scores-screen" class="overlay hidden">
       <div class="glass-panel compact-panel">
-        <h2>HALL OF FAME</h2>
+        <h2>ЗАЛ СЛАВЫ</h2>
         <div id="scores-list" class="scores-list"></div>
-        <button id="btn-close-scores" class="btn-primary">BACK</button>
+        <button id="btn-close-scores" class="btn-primary">НАЗАД</button>
       </div>
     </div>
 
-    <!-- GAME OVER MODAL -->
+    <!-- ЭКРАН ПОРАЖЕНИЯ -->
     <div id="gameover-screen" class="overlay hidden">
       <div class="glass-panel compact-panel gameover-panel">
-        <div id="new-record-badge" class="new-record hidden">★ NEW HIGH SCORE ★</div>
-        <h2>SIGNAL LOST</h2>
+        <div id="new-record-badge" class="new-record hidden">★ НОВЫЙ РЕКОРД ★</div>
+        <h2>СИГНАЛ ПОТЕРЯН</h2>
         <div class="stats-grid">
           <div class="stat-box">
-            <span>FINAL SCORE</span>
+            <span>ИТОГОВЫЙ СЧЁТ</span>
             <strong id="go-score">0</strong>
           </div>
           <div class="stat-box">
-            <span>WAVE REACHED</span>
+            <span>ВОЛНА</span>
             <strong id="go-wave">1</strong>
           </div>
           <div class="stat-box">
-            <span>HOSTILES SHATTERED</span>
+            <span>ВРАГОВ СБИТО</span>
             <strong id="go-kills">0</strong>
           </div>
           <div class="stat-box">
-            <span>MAX COMBO</span>
+            <span>МАКС. КОМБО</span>
             <strong id="go-combo">0</strong>
           </div>
         </div>
         <div id="go-upgrades" class="go-upgrades"></div>
         <div class="cta-row">
-          <button id="btn-retry" class="btn-primary">REDEPLOY</button>
-          <button id="btn-copy-score" class="btn-secondary">COPY SCORE CARD</button>
-          <button id="btn-go-menu" class="btn-secondary">HANGAR</button>
+          <button id="btn-retry" class="btn-primary">ЕЩЁ РАЗ</button>
+          <button id="btn-copy-score" class="btn-secondary">СКОПИРОВАТЬ СЧЁТ</button>
+          <button id="btn-go-menu" class="btn-secondary">В АНГАР</button>
         </div>
       </div>
     </div>
 
-    <!-- TOUCH CONTROLS (MOBILE) -->
-    <div id="touch-controls" class="touch-controls hidden">
-      <div id="touch-left" class="touch-zone">MOVE</div>
-      <div id="touch-right" class="touch-zone">AIM</div>
+    <!-- ПЛАВАЮЩИЕ СЕНСОРНЫЕ СТИКИ ДЛЯ ТЕЛЕФОНА -->
+    <div id="touch-layer" class="touch-layer hidden">
+      <div id="stick-move-base" class="stick-base hidden">
+        <div id="stick-move-knob" class="stick-knob"></div>
+      </div>
+      <div id="stick-aim-base" class="stick-base stick-aim hidden">
+        <div id="stick-aim-knob" class="stick-knob"></div>
+      </div>
+      <div class="touch-hint-bar">Левый палец — полёт · Авто-прицел активен</div>
     </div>
 
     <script type="module" src="/src/main.ts"></script>

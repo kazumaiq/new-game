@@ -20,7 +20,7 @@ const controlsScreen = el<HTMLDivElement>('controls-screen');
 const scoresScreen = el<HTMLDivElement>('scores-screen');
 const gameoverScreen = el<HTMLDivElement>('gameover-screen');
 const waveBanner = el<HTMLDivElement>('wave-banner');
-const touchControls = el<HTMLDivElement>('touch-controls');
+const touchLayer = el<HTMLDivElement>('touch-layer');
 
 let activeUpgradeChoices: UpgradeDef[] = [];
 let waveBannerTimer: number | null = null;
@@ -29,7 +29,16 @@ let lastSummaryText = '';
 function loadSettings(): GameSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    if (raw) return { soundEnabled: true, musicEnabled: true, bloomEnabled: true, screenShake: true, autoFire: true, ...JSON.parse(raw) };
+    if (raw) {
+      return {
+        soundEnabled: true,
+        musicEnabled: true,
+        bloomEnabled: true,
+        screenShake: true,
+        autoFire: true,
+        ...JSON.parse(raw),
+      };
+    }
   } catch {
     // ignore
   }
@@ -72,7 +81,6 @@ const game = new AetherGame(canvas, {
   onWaveBanner: showWaveBanner,
 });
 
-// Init saved settings & theme
 const savedSettings = loadSettings();
 game.settings = savedSettings;
 sound.setSoundEnabled(savedSettings.soundEnabled);
@@ -83,7 +91,9 @@ const initialTheme = THEMES.find((t) => t.id === savedThemeId) || THEMES[0];
 game.setTheme(initialTheme);
 applyThemeToCSS(initialTheme);
 
-// Render Theme Selector
+const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+game.setTouchDevice(isTouch);
+
 const themeGrid = el<HTMLDivElement>('theme-grid');
 function renderThemes(): void {
   themeGrid.innerHTML = '';
@@ -106,11 +116,11 @@ renderThemes();
 
 function renderSettingsInto(container: HTMLElement): void {
   const items: Array<{ key: keyof GameSettings; label: string }> = [
-    { key: 'autoFire', label: 'Auto-Fire Plasma Cannons' },
-    { key: 'soundEnabled', label: 'Synthesized Sound FX' },
-    { key: 'musicEnabled', label: 'Adaptive Synthwave Pulse' },
-    { key: 'bloomEnabled', label: 'Neon Bloom Glow' },
-    { key: 'screenShake', label: 'Impact Screen Shake' },
+    { key: 'autoFire', label: 'Авто-огонь плазма-пушек' },
+    { key: 'soundEnabled', label: 'Синтезированные звуки' },
+    { key: 'musicEnabled', label: 'Адаптивный синтвейв' },
+    { key: 'bloomEnabled', label: 'Неоновое свечение (Bloom)' },
+    { key: 'screenShake', label: 'Тряска экрана при взрывах' },
   ];
 
   container.innerHTML = '';
@@ -120,7 +130,7 @@ function renderSettingsInto(container: HTMLElement): void {
     const on = game.settings[item.key];
     row.innerHTML = `
       <span>${item.label}</span>
-      <span class="toggle-pill ${on ? 'on' : ''}">${on ? 'ON' : 'OFF'}</span>
+      <span class="toggle-pill ${on ? 'on' : ''}">${on ? 'ВКЛ' : 'ВЫКЛ'}</span>
     `;
     row.onclick = () => {
       game.settings[item.key] = !game.settings[item.key];
@@ -143,20 +153,25 @@ function renderHud(hud: HudSnapshot): void {
   const showHud = hud.state === 'playing' || hud.state === 'paused' || hud.state === 'levelup';
   hudEl.classList.toggle('hidden', !showHud);
   pauseScreen.classList.toggle('hidden', hud.state !== 'paused');
+  if (isTouch) {
+    touchLayer.classList.toggle('hidden', hud.state !== 'playing');
+  }
 
   el('hp-bar').style.width = `${Math.max(0, (hud.hp / hud.maxHp) * 100)}%`;
   el('hp-text').textContent = `${hud.hp}/${hud.maxHp}`;
-  el('lvl-label').textContent = `LVL ${hud.level}`;
+  el('lvl-label').textContent = `УР. ${hud.level}`;
   el('xp-bar').style.width = `${Math.min(100, (hud.xp / hud.xpToNext) * 100)}%`;
   el('hud-wave').textContent = String(hud.wave).padStart(2, '0');
-  el('hud-score').textContent = hud.score.toLocaleString();
+  el('hud-score').textContent = hud.score.toLocaleString('ru-RU');
+
+  el('overclock-pill').classList.toggle('hidden', hud.overclockTimer <= 0);
 
   const comboBadge = el('combo-badge');
   if (hud.combo >= 3) {
     comboBadge.classList.remove('hidden');
     const mult = Math.min(8, 1 + Math.floor(hud.combo / 5));
     el('combo-mult').textContent = `x${mult}`;
-    el('combo-count').textContent = `${hud.combo} HITS`;
+    el('combo-count').textContent = `${hud.combo} УДАР.`;
   } else {
     comboBadge.classList.add('hidden');
   }
@@ -202,7 +217,7 @@ function renderLevelUp(choices: UpgradeDef[], acquired: Record<string, number>):
       </div>
       <h3>${u.name}</h3>
       <p>${u.description}</p>
-      <div class="card-rank">RANK ${rank} / ${u.maxStacks}</div>
+      <div class="card-rank">УРОВЕНЬ ${rank} / ${u.maxStacks}</div>
     `;
     card.onclick = () => selectUpgrade(u.id);
     container.appendChild(card);
@@ -240,11 +255,11 @@ function handleGameOver(summary: {
     kills: summary.kills,
     maxCombo: summary.maxCombo,
     theme: game.theme.name,
-    date: new Date().toLocaleDateString(),
+    date: new Date().toLocaleDateString('ru-RU'),
   });
 
   el('new-record-badge').classList.toggle('hidden', !isNewRecord);
-  el('go-score').textContent = summary.score.toLocaleString();
+  el('go-score').textContent = summary.score.toLocaleString('ru-RU');
   el('go-wave').textContent = String(summary.wave);
   el('go-kills').textContent = String(summary.kills);
   el('go-combo').textContent = `${summary.maxCombo}x`;
@@ -257,7 +272,7 @@ function handleGameOver(summary: {
     })
     .join('');
 
-  lastSummaryText = `🚀 AETHER RIFT — Score: ${summary.score.toLocaleString()} | Wave ${summary.wave} | ${summary.kills} Kills | Max Combo ${summary.maxCombo}x (${game.theme.name})`;
+  lastSummaryText = `🚀 AETHER RIFT — Счёт: ${summary.score.toLocaleString('ru-RU')} | Волна ${summary.wave} | Сбито: ${summary.kills} | Макс. комбо: ${summary.maxCombo}x (${game.theme.name})`;
   gameoverScreen.classList.remove('hidden');
 }
 
@@ -265,22 +280,23 @@ function renderScoresModal(): void {
   const list = loadScores();
   const container = el('scores-list');
   if (list.length === 0) {
-    container.innerHTML = '<p style="color:var(--text-dim);padding:20px;">No missions recorded yet. Launch a run!</p>';
+    container.innerHTML = '<p style="color:var(--text-dim);padding:20px;">Пока нет рекордов. Начни первый вылет!</p>';
     return;
   }
   container.innerHTML = list
     .map(
       (s, i) => `
       <div class="score-row">
-        <span>#${i + 1} · Wave ${s.wave} · ${s.kills} Kills (${s.theme})</span>
-        <strong>${s.score.toLocaleString()}</strong>
+        <span>#${i + 1} · Волна ${s.wave} · ${s.kills} сбито (${s.theme})</span>
+        <strong>${s.score.toLocaleString('ru-RU')}</strong>
       </div>`
     )
     .join('');
 }
 
-// Button Bindings
+// Кнопки интерфейса
 el('btn-start').onclick = () => {
+  sound.init();
   titleScreen.classList.add('hidden');
   game.startNewGame();
 };
@@ -309,6 +325,7 @@ el('btn-quit').onclick = () => {
 };
 
 el('btn-mute').onclick = () => {
+  sound.init();
   const anyOn = game.settings.soundEnabled || game.settings.musicEnabled;
   game.settings.soundEnabled = !anyOn;
   game.settings.musicEnabled = !anyOn;
@@ -333,14 +350,14 @@ el('btn-go-menu').onclick = () => {
 el('btn-copy-score').onclick = async () => {
   try {
     await navigator.clipboard.writeText(lastSummaryText);
-    el('btn-copy-score').textContent = 'COPIED!';
-    setTimeout(() => (el('btn-copy-score').textContent = 'COPY SCORE CARD'), 1500);
+    el('btn-copy-score').textContent = 'СКОПИРОВАНО!';
+    setTimeout(() => (el('btn-copy-score').textContent = 'СКОПИРОВАТЬ СЧЁТ'), 1500);
   } catch {
     // ignore
   }
 };
 
-// Input Listeners
+// Клавиатура и мышь
 window.addEventListener('resize', () => game.resize());
 
 window.addEventListener('keydown', (e) => {
@@ -368,30 +385,103 @@ window.addEventListener('mouseup', (e) => {
 });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-// Touch detection
-if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
-  touchControls.classList.remove('hidden');
-  const bindStick = (zone: HTMLElement, onMove: (dx: number, dy: number, active: boolean) => void) => {
-    let originX = 0;
-    let originY = 0;
-    zone.addEventListener('touchstart', (e) => {
+// Плавающие сенсорные стики для iPhone / Android
+if (isTouch) {
+  const moveBase = el<HTMLDivElement>('stick-move-base');
+  const moveKnob = el<HTMLDivElement>('stick-move-knob');
+  const aimBase = el<HTMLDivElement>('stick-aim-base');
+  const aimKnob = el<HTMLDivElement>('stick-aim-knob');
+
+  let moveTouchId: number | null = null;
+  let moveOriginX = 0;
+  let moveOriginY = 0;
+
+  let aimTouchId: number | null = null;
+  let aimOriginX = 0;
+  let aimOriginY = 0;
+
+  const maxRadius = 46;
+
+  touchLayer.addEventListener(
+    'touchstart',
+    (e) => {
+      sound.init();
       e.preventDefault();
-      const t = e.changedTouches[0];
-      originX = t.clientX;
-      originY = t.clientY;
-    });
-    zone.addEventListener('touchmove', (e) => {
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        if (t.clientX < window.innerWidth * 0.55 && moveTouchId === null) {
+          moveTouchId = t.identifier;
+          moveOriginX = t.clientX;
+          moveOriginY = t.clientY;
+          moveBase.style.left = `${t.clientX}px`;
+          moveBase.style.top = `${t.clientY}px`;
+          moveKnob.style.transform = 'translate(0px, 0px)';
+          moveBase.classList.remove('hidden');
+        } else if (t.clientX >= window.innerWidth * 0.55 && aimTouchId === null) {
+          aimTouchId = t.identifier;
+          aimOriginX = t.clientX;
+          aimOriginY = t.clientY;
+          aimBase.style.left = `${t.clientX}px`;
+          aimBase.style.top = `${t.clientY}px`;
+          aimKnob.style.transform = 'translate(0px, 0px)';
+          aimBase.classList.remove('hidden');
+        }
+      }
+    },
+    { passive: false }
+  );
+
+  touchLayer.addEventListener(
+    'touchmove',
+    (e) => {
       e.preventDefault();
-      const t = e.changedTouches[0];
-      const dx = Math.max(-1, Math.min(1, (t.clientX - originX) / 42));
-      const dy = Math.max(-1, Math.min(1, (t.clientY - originY) / 42));
-      onMove(dx, dy, true);
-    });
-    zone.addEventListener('touchend', () => onMove(0, 0, false));
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        if (t.identifier === moveTouchId) {
+          let dx = t.clientX - moveOriginX;
+          let dy = t.clientY - moveOriginY;
+          const dist = Math.hypot(dx, dy);
+          if (dist > maxRadius) {
+            dx = (dx / dist) * maxRadius;
+            dy = (dy / dist) * maxRadius;
+          }
+          moveKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+          game.setTouchMove(dx / maxRadius, dy / maxRadius);
+        } else if (t.identifier === aimTouchId) {
+          let dx = t.clientX - aimOriginX;
+          let dy = t.clientY - aimOriginY;
+          const dist = Math.hypot(dx, dy);
+          if (dist > maxRadius) {
+            dx = (dx / dist) * maxRadius;
+            dy = (dy / dist) * maxRadius;
+          }
+          aimKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+          if (dist > 6) {
+            game.setTouchAim(true, dx / dist, dy / dist);
+          }
+        }
+      }
+    },
+    { passive: false }
+  );
+
+  const handleTouchEnd = (e: TouchEvent) => {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      if (t.identifier === moveTouchId) {
+        moveTouchId = null;
+        moveBase.classList.add('hidden');
+        game.setTouchMove(0, 0);
+      } else if (t.identifier === aimTouchId) {
+        aimTouchId = null;
+        aimBase.classList.add('hidden');
+        game.setTouchAim(false, 0, 0);
+      }
+    }
   };
 
-  bindStick(el('touch-left'), (dx, dy) => game.setTouchMove(dx, dy));
-  bindStick(el('touch-right'), (dx, dy, active) => game.setTouchAim(active, dx, dy));
+  touchLayer.addEventListener('touchend', handleTouchEnd);
+  touchLayer.addEventListener('touchcancel', handleTouchEnd);
 }
 
 updateMuteIcon();
