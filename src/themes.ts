@@ -1,0 +1,48 @@
+import { ThemePalette } from './types';
+
+export const THEMES: ThemePalette[] = [
+  {
+    id: 'cyber-cyan',
+    name: 'CYBER CYAN',
+    subtitle: 'Tactical Ion Interceptor',
+    primary: '#00f5ff',
+    secondary: '#7b2cbf',
+    accent: '#ff2a85',
+    bgInner: '#090d1f',
+    bgOuter: '#03040a',
+    gridColor: 'rgba(0, 245, 255, 0.08)',
+  },
+  {
+    id: 'solar-flare',
+    name: 'SOLAR FLARE',
+    subtitle: 'Helios Corona Vanguard',
+    primary: '#ffb703',
+    secondary: '#fb5607',
+    accent: '#00f5d4',
+    bgInner: '#1a0f08',
+    bgOuter: '#070403',
+    gridColor: 'rgba(255, 183, 3, 0.08)',
+  },
+  {
+    id: 'crimson-oni',
+    name: 'CRIMSON ONI',
+    subtitle: 'Phantom Bloodline Striker',
+    primary: '#ff2a54',
+    secondary: '#9d4edd',
+    accent: '#00bbf9',
+    bgInner: '#19060e',
+    bgOuter: '#060205',
+    gridColor: 'rgba(255, 42, 84, 0.08)',
+  },
+  {
+    id: 'abyssal-emerald',
+    name: 'BIO MATRIX',
+    subtitle: 'Venomous Quantum Drifter',
+    primary: '#00ff87',
+    secondary: '#00b4d8',
+    accent: '#f72585',
+    bgInner: '#051612',
+    bgOuter: '#020706',
+    gridColor: 'rgba(0, 255, 135, 0.08)',
+  },
+];

@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>AETHER RIFT — Cosmic Neon Arena Roguelite</title>
+    <meta
+      name="description"
+      content="Pilot your neon starfighter through an infinite bioluminescent cosmic arena. Draft roguelite upgrades, chain lightning, and survive the Monolith."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <canvas id="game-canvas"></canvas>
+
+    <!-- WAVE BANNER -->
+    <div id="wave-banner" class="wave-banner hidden">
+      <div id="wave-banner-title" class="wave-banner-title">WAVE 01</div>
+      <div id="wave-banner-sub" class="wave-banner-sub">SECTOR BREACH DETECTED</div>
+    </div>
+
+    <!-- IN-GAME HUD -->
+    <div id="hud" class="hud hidden">
+      <div class="hud-top">
+        <div class="hud-panel hud-vitals">
+          <div class="vital-row">
+            <span class="label">HULL</span>
+            <div class="bar-track">
+              <div id="hp-bar" class="bar-fill hp-fill" style="width: 100%"></div>
+            </div>
+            <span id="hp-text" class="value">100/100</span>
+          </div>
+          <div class="vital-row">
+            <span id="lvl-label" class="label">LVL 1</span>
+            <div class="bar-track xp-track">
+              <div id="xp-bar" class="bar-fill xp-fill" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="hud-center">
+          <div class="wave-pill">
+            <span>WAVE</span>
+            <strong id="hud-wave">01</strong>
+          </div>
+          <div id="boss-bar-wrap" class="boss-bar-wrap hidden">
+            <div id="boss-name" class="boss-name">THE MONOLITH</div>
+            <div class="boss-track">
+              <div id="boss-bar" class="boss-fill" style="width: 100%"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="hud-panel hud-score-panel">
+          <div class="score-block">
+            <span class="label">SCORE</span>
+            <strong id="hud-score" class="score-val">0</strong>
+          </div>
+          <div id="combo-badge" class="combo-badge hidden">
+            <span id="combo-mult">x2</span>
+            <small id="combo-count">10 HITS</small>
+          </div>
+          <div class="hud-actions">
+            <button id="btn-mute" class="icon-btn" title="Toggle Audio">🔊</button>
+            <button id="btn-pause" class="icon-btn" title="Pause (Esc)">⏸</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="hud-bottom">
+        <div id="upgrade-strip" class="upgrade-strip"></div>
+        <div class="ability-bar">
+          <button id="btn-dash" class="ability-pill">
+            <span class="key-hint">SPACE</span>
+            <span class="ab-name">PHASE DASH</span>
+            <div class="ab-track"><div id="dash-bar" class="ab-fill"></div></div>
+          </button>
+          <button id="btn-nova" class="ability-pill nova-pill">
+            <span class="key-hint">E / SHIFT</span>
+            <span class="ab-name">AETHER NOVA</span>
+            <div class="ab-track"><div id="nova-bar" class="ab-fill nova-fill"></div></div>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TITLE SCREEN -->
+    <div id="title-screen" class="overlay">
+      <div class="title-card glass-panel">
+        <div class="badge-row">
+          <span class="live-dot"></span>
+          <span>60FPS WEBGL/CANVAS ARCADE ROGUELITE</span>
+        </div>
+        <h1 class="game-title">AETHER <span>RIFT</span></h1>
+        <p class="game-tagline">
+          Pilot your starfighter through an infinite bioluminescent void. Chain lightning, bend ballistics, and shatter the Monolith.
+        </p>
+
+        <div class="theme-section">
+          <div class="section-label">SELECT CHASSIS SPECTRUM</div>
+          <div id="theme-grid" class="theme-grid"></div>
+        </div>
+
+        <div class="cta-row">
+          <button id="btn-start" class="btn-primary">
+            <span>LAUNCH MISSION</span>
+            <span class="arrow">→</span>
+          </button>
+          <button id="btn-controls" class="btn-secondary">CONTROLS &amp; FX</button>
+          <button id="btn-scores" class="btn-secondary">HALL OF FAME</button>
+        </div>
+
+        <div class="quick-controls-hint">
+          <span><b>WASD</b> Move</span>
+          <span><b>MOUSE</b> Aim &amp; Fire</span>
+          <span><b>SPACE</b> Phase Dash</span>
+          <span><b>E / SHIFT</b> Aether Nova</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- LEVEL UP MODAL -->
+    <div id="levelup-screen" class="overlay hidden">
+      <div class="modal-wrap">
+        <div class="modal-header">
+          <div class="modal-kicker">SYSTEM OVERCLOCK</div>
+          <h2>CHOOSE AN UPGRADE</h2>
+          <p>Select with click or press <b>1</b>, <b>2</b>, <b>3</b></p>
+        </div>
+        <div id="upgrade-cards" class="upgrade-cards"></div>
+      </div>
+    </div>
+
+    <!-- PAUSE MODAL -->
+    <div id="pause-screen" class="overlay hidden">
+      <div class="glass-panel compact-panel">
+        <h2>MISSION PAUSED</h2>
+        <div class="settings-list" id="pause-settings"></div>
+        <div class="cta-col">
+          <button id="btn-resume" class="btn-primary">RESUME</button>
+          <button id="btn-quit" class="btn-secondary">RETURN TO HANGAR</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONTROLS & FX MODAL -->
+    <div id="controls-screen" class="overlay hidden">
+      <div class="glass-panel compact-panel">
+        <h2>FLIGHT SYSTEMS &amp; FX</h2>
+        <div class="controls-grid">
+          <div><b>WASD / Arrows</b></div><div>Thruster Movement</div>
+          <div><b>Mouse / Auto-Fire</b></div><div>360° Plasma Aim</div>
+          <div><b>Space / Right-Click</b></div><div>Invulnerable Phase Dash</div>
+          <div><b>E / Shift</b></div><div>Aether Nova Shockwave (100% Charge)</div>
+          <div><b>Esc</b></div><div>Pause &amp; Settings</div>
+        </div>
+        <div class="settings-list" id="title-settings"></div>
+        <button id="btn-close-controls" class="btn-primary">BACK</button>
+      </div>
+    </div>
+
+    <!-- HALL OF FAME MODAL -->
+    <div id="scores-screen" class="overlay hidden">
+      <div class="glass-panel compact-panel">
+        <h2>HALL OF FAME</h2>
+        <div id="scores-list" class="scores-list"></div>
+        <button id="btn-close-scores" class="btn-primary">BACK</button>
+      </div>
+    </div>
+
+    <!-- GAME OVER MODAL -->
+    <div id="gameover-screen" class="overlay hidden">
+      <div class="glass-panel compact-panel gameover-panel">
+        <div id="new-record-badge" class="new-record hidden">★ NEW HIGH SCORE ★</div>
+        <h2>SIGNAL LOST</h2>
+        <div class="stats-grid">
+          <div class="stat-box">
+            <span>FINAL SCORE</span>
+            <strong id="go-score">0</strong>
+          </div>
+          <div class="stat-box">
+            <span>WAVE REACHED</span>
+            <strong id="go-wave">1</strong>
+          </div>
+          <div class="stat-box">
+            <span>HOSTILES SHATTERED</span>
+            <strong id="go-kills">0</strong>
+          </div>
+          <div class="stat-box">
+            <span>MAX COMBO</span>
+            <strong id="go-combo">0</strong>
+          </div>
+        </div>
+        <div id="go-upgrades" class="go-upgrades"></div>
+        <div class="cta-row">
+          <button id="btn-retry" class="btn-primary">REDEPLOY</button>
+          <button id="btn-copy-score" class="btn-secondary">COPY SCORE CARD</button>
+          <button id="btn-go-menu" class="btn-secondary">HANGAR</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TOUCH CONTROLS (MOBILE) -->
+    <div id="touch-controls" class="touch-controls hidden">
+      <div id="touch-left" class="touch-zone">MOVE</div>
+      <div id="touch-right" class="touch-zone">AIM</div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
