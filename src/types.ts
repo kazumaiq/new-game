@@ -1,5 +1,7 @@
 export type GameState = 'title' | 'playing' | 'paused' | 'levelup' | 'gameover';
 
+export type GameMode = 'classic' | 'blitz' | 'daily' | 'coop' | 'pvp';
+
 export type EnemyKind = 'swarmer' | 'splitter' | 'mini' | 'sniper' | 'warden' | 'boss';
 
 export type PowerUpKind = 'heal' | 'magnet' | 'overclock';
@@ -20,10 +22,11 @@ export interface UpgradeDef {
   id: string;
   name: string;
   tag: string;
-  rarity: 'common' | 'rare' | 'epic';
+  rarity: 'common' | 'rare' | 'epic' | 'evolution';
   icon: string;
   description: string;
   maxStacks: number;
+  requires?: [string, string];
 }
 
 export interface PlayerStats {
@@ -44,6 +47,9 @@ export interface PlayerStats {
   pickupRadius: number;
   critChance: number;
   aegisShieldCooldown: number;
+  evoStorm: boolean;
+  evoVortex: boolean;
+  evoOmega: boolean;
 }
 
 export interface Player {

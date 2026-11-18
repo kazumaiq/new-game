@@ -1218,3 +1218,46 @@ body {
   color: var(--primary);
   font-family: 'Exo 2', sans-serif;
 }
+
+/* MODE TABS & EVOLUTION CARDS */
+.mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+#online-mode-tabs {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.mode-tab {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  padding: 9px 6px;
+  color: var(--text-dim);
+  font-family: 'Exo 2', sans-serif;
+  font-weight: 700;
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mode-tab.active {
+  background: rgba(0, 245, 255, 0.16);
+  border-color: var(--primary);
+  color: #fff;
+  box-shadow: 0 0 16px rgba(0, 245, 255, 0.25);
+}
+
+.upgrade-card.rarity-evolution {
+  border: 2px solid #ffb703;
+  background: linear-gradient(145deg, rgba(255, 183, 3, 0.16), rgba(255, 42, 133, 0.16));
+  box-shadow: 0 0 32px rgba(255, 183, 3, 0.35);
+}
+
+.upgrade-card.rarity-evolution .card-tag {
+  background: #ffb703;
+  color: #030612;
+}

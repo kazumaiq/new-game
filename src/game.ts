@@ -8,6 +8,7 @@ import {
   Enemy,
   EnemyKind,
   FloatingText,
+  GameMode,
   GameSettings,
   GameState,
   LightningArc,
@@ -39,6 +40,8 @@ export interface HudSnapshot {
   dashReadyRatio: number;
   overclockTimer: number;
   shieldReady: boolean;
+  mode: GameMode;
+  blitzTimer: number;
   boss: { name: string; hp: number; maxHp: number } | null;
   acquiredUpgrades: Record<string, number>;
 }
@@ -52,9 +55,12 @@ export interface GameCallbacks {
     kills: number;
     maxCombo: number;
     shards: number;
+    victory?: boolean;
+    mode: GameMode;
     upgrades: Record<string, number>;
   }) => void;
   onWaveBanner: (title: string, subtitle: string) => void;
+  onPvpHit?: (damage: number) => void;
 }
 
 interface Star {
@@ -146,6 +152,9 @@ export class AetherGame {
 
   private profile: PlayerProfile | null = null;
   private greedMult = 1;
+  public mode: GameMode = 'classic';
+  private blitzTimer = 180;
+  private blitzBossSpawned = false;
   private coopRole: NetRole = 'none';
   private remotePlayer: RemotePlayerState = {
     connected: false,
@@ -300,7 +309,23 @@ export class AetherGame {
     }
   }
 
+  public setMode(mode: GameMode): void {
+    this.mode = mode;
+  }
+
+  public applyRemoteHit(damage: number): void {
+    if (this.state !== 'playing' || this.player.invulnTimer > 0) return;
+    this.damagePlayer(damage);
+  }
+
   private vibrate(ms: number): void {
+    const tg = (window as unknown as {
+      Telegram?: { WebApp?: { HapticFeedback?: { impactOccurred: (s: 'light' | 'medium' | 'heavy') => void } } };
+    }).Telegram;
+    if (tg?.WebApp?.HapticFeedback) {
+      tg.WebApp.HapticFeedback.impactOccurred(ms >= 45 ? 'heavy' : ms >= 25 ? 'medium' : 'light');
+      return;
+    }
     if (this.isTouchDevice && typeof navigator !== 'undefined' && navigator.vibrate) {
       navigator.vibrate(ms);
     }
@@ -343,8 +368,16 @@ export class AetherGame {
     }
     this.resetRun(false);
     this.state = 'playing';
-    this.callbacks.onWaveBanner('ВОЛНА 01', 'ПРОРЫВ ПЕРИМЕТРА СЕКТОРА');
-    if (this.player.xp >= this.player.xpToNext) {
+    if (this.mode === 'pvp') {
+      this.callbacks.onWaveBanner('ДУЭЛЬ 1 НА 1', 'ПОБЕДИ СОПЕРНИКА НА АРЕНЕ');
+    } else if (this.mode === 'blitz') {
+      this.callbacks.onWaveBanner('БЛИЦ 3:00', 'УСКОРЕННАЯ ПРОКАЧКА · ВЫЖИВИ 3 МИНУТЫ');
+    } else if (this.mode === 'daily') {
+      this.callbacks.onWaveBanner('ЗАБЕГ ДНЯ', 'ОДИНАКОВЫЕ ВОЛНЫ ДЛЯ ВСЕХ ПИЛОТОВ');
+    } else {
+      this.callbacks.onWaveBanner('ВОЛНА 01', 'ПРОРЫВ ПЕРИМЕТРА СЕКТОРА');
+    }
+    if (this.player.xp >= this.player.xpToNext && this.mode !== 'pvp') {
       this.player.xp = 0;
       this.player.level++;
       this.triggerLevelUp();
@@ -542,6 +575,20 @@ export class AetherGame {
       case 'crit':
         this.stats.critChance = Math.min(0.9, this.stats.critChance + 0.18);
         break;
+      case 'evo_storm':
+        this.stats.evoStorm = true;
+        this.stats.projectiles += 2;
+        this.stats.spreadAngle = Math.min(0.55, 0.08 * (this.stats.projectiles - 1));
+        this.stats.chainLightning += 2;
+        break;
+      case 'evo_vortex':
+        this.stats.evoVortex = true;
+        this.stats.orbitalBlades += 2;
+        break;
+      case 'evo_omega':
+        this.stats.evoOmega = true;
+        this.stats.homingMissiles += 2;
+        break;
     }
 
     this.state = 'playing';
@@ -569,6 +616,9 @@ export class AetherGame {
       pickupRadius: 160,
       critChance: 0.12,
       aegisShieldCooldown: 0,
+      evoStorm: false,
+      evoVortex: false,
+      evoOmega: false,
     };
 
     this.player = {
@@ -619,6 +669,15 @@ export class AetherGame {
     this.comboTimer = 0;
     this.bossActive = false;
     this.greedMult = 1;
+    this.blitzTimer = 180;
+    this.blitzBossSpawned = false;
+
+    if (!attractMode && this.mode === 'pvp') {
+      this.player.x = this.coopRole === 'host' ? 450 : 1950;
+      this.player.y = 900;
+      this.player.maxHp = 200;
+      this.player.hp = 200;
+    }
 
     if (!attractMode && this.profile) {
       const m = this.profile.metaLevels;
@@ -774,6 +833,49 @@ export class AetherGame {
       if (this.comboTimer <= 0) {
         this.combo = 0;
       }
+    }
+
+    if (!isTitle && this.mode === 'blitz') {
+      this.blitzTimer -= dt;
+      if (this.blitzTimer <= 30 && !this.blitzBossSpawned) {
+        this.blitzBossSpawned = true;
+        sound.playBossWarning();
+        this.callbacks.onWaveBanner('ФИНАЛЬНЫЙ РЫВОК', 'ГИГА-МОНОЛИТ НА АРЕНЕ!');
+        this.spawnEnemy('boss');
+      }
+      if (this.blitzTimer <= 0) {
+        this.blitzTimer = 0;
+        this.state = 'gameover';
+        this.pushHud();
+        const rawShards = Math.max(15, Math.floor(this.kills * 0.6 + this.wave * 10)) * 2;
+        this.callbacks.onGameOver({
+          score: this.score + 5000,
+          wave: this.wave,
+          kills: this.kills,
+          maxCombo: this.maxCombo,
+          shards: Math.round(rawShards * this.greedMult),
+          victory: true,
+          mode: this.mode,
+          upgrades: { ...this.acquiredUpgrades },
+        });
+        return;
+      }
+    }
+
+    if (!isTitle && this.mode === 'pvp' && this.remotePlayer.connected && this.remotePlayer.down) {
+      this.state = 'gameover';
+      this.pushHud();
+      this.callbacks.onGameOver({
+        score: this.score + 3000,
+        wave: 1,
+        kills: this.kills + 1,
+        maxCombo: this.maxCombo,
+        shards: 80,
+        victory: true,
+        mode: this.mode,
+        upgrades: { ...this.acquiredUpgrades },
+      });
+      return;
     }
 
     this.updatePlayer(dt, isTitle);
@@ -938,6 +1040,21 @@ export class AetherGame {
         }
       }
     }
+    if (this.stats.evoVortex && !isTitle) {
+      const vortexR = 86;
+      for (let i = this.bullets.length - 1; i >= 0; i--) {
+        const bul = this.bullets[i];
+        if (bul.isEnemy && Math.hypot(bul.x - p.x, bul.y - p.y) < vortexR) {
+          this.bullets.splice(i, 1);
+        }
+      }
+      for (let i = this.enemies.length - 1; i >= 0; i--) {
+        const e = this.enemies[i];
+        if (Math.hypot(e.x - p.x, e.y - p.y) < vortexR + e.radius) {
+          this.damageEnemy(e, this.stats.damage * 0.55 * dt * 12, false);
+        }
+      }
+    }
   }
 
   private fireWeapon(silent: boolean): void {
@@ -975,7 +1092,7 @@ export class AetherGame {
       });
     }
 
-    if (this.stats.homingMissiles > 0 && p.shotCounter % 3 === 0) {
+    if (this.stats.homingMissiles > 0 && (this.stats.evoOmega || p.shotCounter % 3 === 0)) {
       for (let m = 0; m < this.stats.homingMissiles; m++) {
         const side = m % 2 === 0 ? 1 : -1;
         const a = p.angle + side * (0.45 + Math.floor(m / 2) * 0.25);
@@ -1004,7 +1121,7 @@ export class AetherGame {
   }
 
   private updateSpawning(dt: number, isTitle: boolean): void {
-    if (this.coopRole === 'guest') return;
+    if (this.coopRole === 'guest' || this.mode === 'pvp') return;
     if (this.waveSpawnRemaining > 0) {
       this.spawnTimer -= dt;
       if (this.spawnTimer <= 0) {
@@ -1212,6 +1329,14 @@ export class AetherGame {
       }
 
       let consumed = false;
+      if (!isTitle && this.mode === 'pvp' && this.remotePlayer.connected && !this.remotePlayer.down) {
+        if (Math.hypot(b.x - this.remotePlayer.x, b.y - this.remotePlayer.y) < b.radius + 18) {
+          this.callbacks.onPvpHit?.(b.damage);
+          this.spawnParticles(b.x, b.y, 6, '#ff2a85', 180);
+          this.bullets.splice(i, 1);
+          continue;
+        }
+      }
       for (let j = this.enemies.length - 1; j >= 0; j--) {
         const e = this.enemies[j];
         if (b.hitIds.has(e.id)) continue;
@@ -1220,7 +1345,9 @@ export class AetherGame {
           this.damageEnemy(e, b.damage, !isTitle, b.isCrit);
 
           if (this.stats.chainLightning > 0) {
-            this.triggerChainLightning(e, this.stats.chainLightning, b.damage * 0.55, !isTitle);
+            const range = this.stats.evoStorm ? 420 : 235;
+            const mult = this.stats.evoStorm ? 0.85 : 0.55;
+            this.triggerChainLightning(e, this.stats.chainLightning, b.damage * mult, !isTitle, range);
           }
 
           if (b.pierceLeft > 0) {
@@ -1267,13 +1394,13 @@ export class AetherGame {
     }
   }
 
-  private triggerChainLightning(source: Enemy, jumps: number, dmg: number, allowAudio: boolean): void {
+  private triggerChainLightning(source: Enemy, jumps: number, dmg: number, allowAudio: boolean, maxRange = 235): void {
     let current: Enemy = source;
     const visited = new Set<number>([source.id]);
 
     for (let k = 0; k < jumps; k++) {
       let best: Enemy | null = null;
-      let bestDist = 235;
+      let bestDist = maxRange;
       for (const candidate of this.enemies) {
         if (visited.has(candidate.id)) continue;
         const d = Math.hypot(candidate.x - current.x, candidate.y - current.y);
@@ -1437,6 +1564,8 @@ export class AetherGame {
         kills: this.kills,
         maxCombo: this.maxCombo,
         shards,
+        victory: false,
+        mode: this.mode,
         upgrades: { ...this.acquiredUpgrades },
       });
     }
@@ -1467,7 +1596,8 @@ export class AetherGame {
         this.orbs.splice(i, 1);
         if (this.state === 'playing') {
           sound.playPickup();
-          p.xp += o.value;
+          const xpMult = this.mode === 'blitz' ? 1.6 : 1;
+          p.xp += Math.ceil(o.value * xpMult);
           p.novaCharge = Math.min(100, p.novaCharge + 1.6);
           if (p.xp >= p.xpToNext) {
             p.xp -= p.xpToNext;
@@ -1481,16 +1611,24 @@ export class AetherGame {
   }
 
   private triggerLevelUp(): void {
-    const available = UPGRADES.filter((u) => (this.acquiredUpgrades[u.id] || 0) < u.maxStacks);
+    const available = UPGRADES.filter((u) => {
+      if ((this.acquiredUpgrades[u.id] || 0) >= u.maxStacks) return false;
+      if (u.requires) {
+        return (this.acquiredUpgrades[u.requires[0]] || 0) > 0 && (this.acquiredUpgrades[u.requires[1]] || 0) > 0;
+      }
+      return true;
+    });
     if (available.length === 0) {
       this.player.hp = Math.min(this.player.maxHp, this.player.hp + 25);
       return;
     }
 
-    const pool = [...available].sort(() => Math.random() - 0.5);
-    const choices = pool.slice(0, Math.min(3, pool.length));
+    const evos = available.filter((u) => u.rarity === 'evolution');
+    const regulars = available.filter((u) => u.rarity !== 'evolution').sort(() => Math.random() - 0.5);
+    const choices = [...evos, ...regulars].slice(0, Math.min(3, available.length));
     this.state = 'levelup';
     sound.playLevelUp();
+    this.vibrate(30);
     this.pushHud();
     this.callbacks.onLevelUp(choices, { ...this.acquiredUpgrades });
   }
@@ -1637,6 +1775,8 @@ export class AetherGame {
         this.player.dashTimer <= 0 ? 1 : Math.max(0, 1 - this.player.dashTimer / this.stats.dashCooldown),
       overclockTimer: this.player.overclockTimer,
       shieldReady: this.player.shieldReady,
+      mode: this.mode,
+      blitzTimer: Math.max(0, Math.ceil(this.blitzTimer)),
       boss: boss ? { name: 'МОНОЛИТ ПУСТОТЫ', hp: Math.max(0, Math.ceil(boss.hp)), maxHp: boss.maxHp } : null,
       acquiredUpgrades: { ...this.acquiredUpgrades },
     });
@@ -1934,6 +2074,17 @@ export class AetherGame {
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.radius + 11 + Math.sin(this.time * 5) * 1.5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    if (this.stats.evoVortex) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255, 183, 3, 0.55)';
+      ctx.lineWidth = 4;
+      ctx.setLineDash([18, 10]);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 84, this.time * 4, this.time * 4 + Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }

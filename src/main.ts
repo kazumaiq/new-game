@@ -1,6 +1,7 @@
 import './style.css';
 import { sound } from './audio';
 import { AetherGame, HudSnapshot } from './game';
+import { fetchGlobalLeaderboard, submitGlobalScore } from './leaderboard';
 import { CoopNetwork } from './network';
 import {
   getMetaCost,
@@ -11,7 +12,7 @@ import {
   SHIP_CLASSES,
 } from './progression';
 import { THEMES } from './themes';
-import { GameSettings, HighScoreEntry, ThemePalette, UpgradeDef } from './types';
+import { GameMode, GameSettings, HighScoreEntry, ThemePalette, UpgradeDef } from './types';
 import { UPGRADES } from './upgrades';
 
 const SCORES_KEY = 'aether_rift_scores_v1';
@@ -39,8 +40,39 @@ let waveBannerTimer: number | null = null;
 let lastChallengeUrl = '';
 let lastRunScore = 0;
 let coopSyncTimer: number | null = null;
+let selectedSoloMode: GameMode = 'classic';
+let selectedOnlineMode: 'coop' | 'pvp' = 'coop';
+let activeLbTab: 'daily' | 'all' | 'local' = 'daily';
 
 const profile = loadProfile();
+
+// Telegram Mini App integration
+const tgApp = (window as unknown as {
+  Telegram?: {
+    WebApp?: {
+      ready: () => void;
+      expand: () => void;
+      initDataUnsafe?: { user?: { username?: string; first_name?: string } };
+    };
+  };
+}).Telegram?.WebApp;
+
+if (tgApp) {
+  tgApp.ready();
+  tgApp.expand();
+  const tgUser = tgApp.initDataUnsafe?.user;
+  if (tgUser && profile.callsign.startsWith('ПИЛОТ-')) {
+    profile.callsign = (tgUser.username || tgUser.first_name || 'ПИЛОТ').slice(0, 14).toUpperCase();
+    saveProfile(profile);
+  }
+}
+
+// PWA Service Worker
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => undefined);
+  });
+}
 
 function loadSettings(): GameSettings {
   try {
@@ -95,6 +127,9 @@ const game = new AetherGame(canvas, {
   onLevelUp: renderLevelUp,
   onGameOver: handleGameOver,
   onWaveBanner: showWaveBanner,
+  onPvpHit: (dmg) => {
+    coop.send({ type: 'pvp_hit', dmg });
+  },
 });
 
 game.setProfile(profile);
@@ -122,13 +157,17 @@ const coop = new CoopNetwork({
   onPeerHello: (callsign, color) => {
     game.setRemoteHello(callsign, color);
   },
-  onStartMatch: () => {
+  onStartMatch: (onlineMode) => {
     coopScreen.classList.add('hidden');
     titleScreen.classList.add('hidden');
-    startCoopMatch('guest');
+    startCoopMatch('guest', onlineMode);
   },
   onPacket: (data) => {
-    game.applyCoopPacket(data);
+    if (data.type === 'pvp_hit') {
+      game.applyRemoteHit(Number(data.dmg ?? 20));
+    } else {
+      game.applyCoopPacket(data);
+    }
   },
   onDisconnect: () => {
     stopCoopLoop();
@@ -136,8 +175,9 @@ const coop = new CoopNetwork({
   },
 });
 
-function startCoopMatch(role: 'host' | 'guest'): void {
+function startCoopMatch(role: 'host' | 'guest', onlineMode: 'coop' | 'pvp'): void {
   game.setCoopRole(role);
+  game.setMode(onlineMode);
   game.setProfile(profile);
   game.startNewGame();
   stopCoopLoop();
@@ -408,8 +448,19 @@ function renderHud(hud: HudSnapshot): void {
   el('hp-text').textContent = `${hud.hp}/${hud.maxHp}`;
   el('lvl-label').textContent = `УР. ${hud.level}`;
   el('xp-bar').style.width = `${Math.min(100, (hud.xp / hud.xpToNext) * 100)}%`;
-  el('hud-wave').textContent = String(hud.wave).padStart(2, '0');
+  el('hud-mode-label').textContent = hud.mode === 'pvp' ? 'ДУЭЛЬ' : hud.mode === 'daily' ? 'ДЕНЬ' : 'ВОЛНА';
+  el('hud-wave').textContent = hud.mode === 'pvp' ? '1v1' : String(hud.wave).padStart(2, '0');
   el('hud-score').textContent = hud.score.toLocaleString('ru-RU');
+
+  const blitzPill = el('blitz-timer-pill');
+  if (hud.mode === 'blitz') {
+    blitzPill.classList.remove('hidden');
+    const mins = Math.floor(hud.blitzTimer / 60);
+    const secs = String(hud.blitzTimer % 60).padStart(2, '0');
+    blitzPill.textContent = `⏱ ${String(mins).padStart(2, '0')}:${secs}`;
+  } else {
+    blitzPill.classList.add('hidden');
+  }
 
   el('overclock-pill').classList.toggle('hidden', hud.overclockTimer <= 0);
 
@@ -495,6 +546,8 @@ function handleGameOver(summary: {
   kills: number;
   maxCombo: number;
   shards: number;
+  victory?: boolean;
+  mode: GameMode;
   upgrades: Record<string, number>;
 }): void {
   stopCoopLoop();
@@ -511,6 +564,15 @@ function handleGameOver(summary: {
   saveProfile(profile);
   refreshLobbyUI();
 
+  const shipDef = SHIP_CLASSES.find((s) => s.id === profile.selectedShip) || SHIP_CLASSES[0];
+  void submitGlobalScore({
+    callsign: profile.callsign,
+    score: summary.score,
+    wave: summary.wave,
+    mode: summary.mode,
+    ship: shipDef.name,
+  });
+
   const isNewRecord = saveScore({
     score: summary.score,
     wave: summary.wave,
@@ -524,6 +586,7 @@ function handleGameOver(summary: {
   const baseUrl = `${window.location.origin}${window.location.pathname}`;
   lastChallengeUrl = `${baseUrl}?challenge=${summary.score}&by=${encodeURIComponent(profile.callsign)}`;
 
+  el('go-title').textContent = summary.victory ? '🏆 ПОБЕДА!' : 'СИГНАЛ ПОТЕРЯН';
   el('new-record-badge').classList.toggle('hidden', !isNewRecord);
   el('go-shards').textContent = `+${summary.shards} ✦`;
   el('go-score').textContent = summary.score.toLocaleString('ru-RU');
@@ -542,19 +605,34 @@ function handleGameOver(summary: {
   gameoverScreen.classList.remove('hidden');
 }
 
-function renderScoresModal(): void {
-  const list = loadScores();
+async function renderScoresModal(): Promise<void> {
   const container = el('scores-list');
-  if (list.length === 0) {
-    container.innerHTML = '<p style="color:var(--text-dim);padding:20px;">Пока нет рекордов. Начни первый вылет!</p>';
+  if (activeLbTab === 'local') {
+    const list = loadScores();
+    if (list.length === 0) {
+      container.innerHTML = '<p style="color:var(--text-dim);padding:20px;">Пока нет рекордов. Начни первый вылет!</p>';
+      return;
+    }
+    container.innerHTML = list
+      .map(
+        (s, i) => `
+        <div class="score-row">
+          <span>#${i + 1} · Волна ${s.wave} · ${s.kills} сбито (${s.theme})</span>
+          <strong>${s.score.toLocaleString('ru-RU')}</strong>
+        </div>`
+      )
+      .join('');
     return;
   }
-  container.innerHTML = list
+
+  container.innerHTML = '<p style="color:var(--text-dim);padding:20px;">Загрузка рейтинга...</p>';
+  const rows = await fetchGlobalLeaderboard(activeLbTab === 'daily' ? 'daily' : 'all', profile.callsign);
+  container.innerHTML = rows
     .map(
-      (s, i) => `
-      <div class="score-row">
-        <span>#${i + 1} · Волна ${s.wave} · ${s.kills} сбито (${s.theme})</span>
-        <strong>${s.score.toLocaleString('ru-RU')}</strong>
+      (r, i) => `
+      <div class="score-row" style="${r.isSelf ? 'border:1px solid var(--primary);' : ''}">
+        <span>#${i + 1} · <b>${r.callsign}</b> · Волна ${r.wave} (${r.ship})</span>
+        <strong>${r.score.toLocaleString('ru-RU')}</strong>
       </div>`
     )
     .join('');
@@ -579,9 +657,35 @@ async function shareOrCopy(title: string, text: string, url: string, btn: HTMLEl
 }
 
 // ==================== BUTTON BINDINGS ====================
+document.querySelectorAll('#mode-tabs .mode-tab').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#mode-tabs .mode-tab').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    selectedSoloMode = (btn.getAttribute('data-mode') as GameMode) || 'classic';
+  });
+});
+
+document.querySelectorAll('#online-mode-tabs .mode-tab').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#online-mode-tabs .mode-tab').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    selectedOnlineMode = btn.getAttribute('data-online') === 'pvp' ? 'pvp' : 'coop';
+  });
+});
+
+document.querySelectorAll('#lb-tabs .mode-tab').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#lb-tabs .mode-tab').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    activeLbTab = (btn.getAttribute('data-lb') as 'daily' | 'all' | 'local') || 'daily';
+    void renderScoresModal();
+  });
+});
+
 el('btn-start').onclick = () => {
   sound.init();
   game.setCoopRole('none');
+  game.setMode(selectedSoloMode);
   game.setProfile(profile);
   titleScreen.classList.add('hidden');
   game.startNewGame();
@@ -617,10 +721,10 @@ el('btn-coop-invite').onclick = () => {
   );
 };
 el('btn-coop-start').onclick = () => {
-  coop.send({ type: 'start' });
+  coop.send({ type: 'start', mode: selectedOnlineMode });
   coopScreen.classList.add('hidden');
   titleScreen.classList.add('hidden');
-  startCoopMatch('host');
+  startCoopMatch('host', selectedOnlineMode);
 };
 el('btn-coop-join').onclick = () => {
   const code = el<HTMLInputElement>('coop-code-input').value;
@@ -634,7 +738,7 @@ el('btn-controls').onclick = () => {
 el('btn-close-controls').onclick = () => controlsScreen.classList.add('hidden');
 
 el('btn-scores').onclick = () => {
-  renderScoresModal();
+  void renderScoresModal();
   scoresScreen.classList.remove('hidden');
 };
 el('btn-close-scores').onclick = () => scoresScreen.classList.add('hidden');

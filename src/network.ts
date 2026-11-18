@@ -17,7 +17,7 @@ export interface RemotePlayerState {
 export interface NetCallbacks {
   onStatus: (status: string, connected: boolean) => void;
   onPeerHello: (callsign: string, color: string) => void;
-  onStartMatch: () => void;
+  onStartMatch: (mode: 'coop' | 'pvp') => void;
   onPacket: (data: Record<string, unknown>) => void;
   onDisconnect: () => void;
 }
@@ -90,7 +90,8 @@ export class CoopNetwork {
       if (data.type === 'hello') {
         this.callbacks.onPeerHello(String(data.callsign || 'НАПАРНИК'), String(data.color || '#ff2a85'));
       } else if (data.type === 'start') {
-        this.callbacks.onStartMatch();
+        const m = data.mode === 'pvp' ? 'pvp' : 'coop';
+        this.callbacks.onStartMatch(m);
       } else {
         this.callbacks.onPacket(data);
       }

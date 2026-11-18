@@ -8,6 +8,11 @@
     />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#00f5ff" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="apple-touch-icon" href="./icon.svg" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <title>AETHER RIFT — Неоновый Космический Рогалик Онлайн</title>
     <meta
       name="description"
@@ -50,9 +55,10 @@
 
         <div class="hud-center">
           <div class="wave-pill">
-            <span>ВОЛНА</span>
+            <span id="hud-mode-label">ВОЛНА</span>
             <strong id="hud-wave">01</strong>
           </div>
+          <div id="blitz-timer-pill" class="overclock-pill hidden">⏱ 03:00</div>
           <div id="overclock-pill" class="overclock-pill hidden">⚡ ПЕРЕГРУЗКА x2</div>
           <div id="boss-bar-wrap" class="boss-bar-wrap hidden">
             <div id="boss-name" class="boss-name">МОНОЛИТ ПУСТОТЫ</div>
@@ -117,6 +123,15 @@
         </p>
 
         <div class="theme-section">
+          <div class="section-label">РЕЖИМ ИГРЫ</div>
+          <div id="mode-tabs" class="mode-tabs">
+            <button class="mode-tab active" data-mode="classic">∞ КЛАССИКА</button>
+            <button class="mode-tab" data-mode="blitz">⚡ БЛИЦ 3:00</button>
+            <button class="mode-tab" data-mode="daily">📅 ЗАБЕГ ДНЯ</button>
+          </div>
+        </div>
+
+        <div class="theme-section">
           <div class="section-label">СПЕКТР КОРПУСА</div>
           <div id="theme-grid" class="theme-grid"></div>
         </div>
@@ -177,6 +192,10 @@
         <div id="coop-status" class="coop-status">Не подключено</div>
 
         <div class="coop-controls">
+          <div class="mode-tabs" id="online-mode-tabs">
+            <button class="mode-tab active" data-online="coop">🤝 КООП</button>
+            <button class="mode-tab" data-online="pvp">⚔️ ДУЭЛЬ 1х1</button>
+          </div>
           <button id="btn-coop-create" class="btn-primary" style="width: 100%">СОЗДАТЬ КОМНАТУ</button>
           <button id="btn-coop-invite" class="btn-secondary hidden" style="width: 100%">📤 ПРИГЛАСИТЬ ДРУГА (ССЫЛКА)</button>
           <button id="btn-coop-start" class="btn-primary hidden" style="width: 100%">🚀 ЗАПУСТИТЬ БОЙ ВДВОЁМ</button>
@@ -233,8 +252,13 @@
 
     <!-- ЗАЛ СЛАВЫ -->
     <div id="scores-screen" class="overlay hidden">
-      <div class="glass-panel compact-panel">
+      <div class="glass-panel compact-panel modal-scroll">
         <h2>🏆 ЗАЛ СЛАВЫ</h2>
+        <div class="mode-tabs" id="lb-tabs" style="margin-bottom: 14px">
+          <button class="mode-tab active" data-lb="daily">📅 ЗАБЕГ ДНЯ</button>
+          <button class="mode-tab" data-lb="all">🌍 МИРОВОЙ</button>
+          <button class="mode-tab" data-lb="local">👤 МОИ</button>
+        </div>
         <div id="scores-list" class="scores-list"></div>
         <button id="btn-close-scores" class="btn-primary" style="width: 100%">НАЗАД</button>
       </div>
@@ -244,7 +268,7 @@
     <div id="gameover-screen" class="overlay hidden">
       <div class="glass-panel compact-panel gameover-panel modal-scroll">
         <div id="new-record-badge" class="new-record hidden">★ НОВЫЙ РЕКОРД ★</div>
-        <h2>СИГНАЛ ПОТЕРЯН</h2>
+        <h2 id="go-title">СИГНАЛ ПОТЕРЯН</h2>
         <div class="earned-shards-banner">Получено <strong id="go-shards">+0 ✦</strong> Эфирных Осколков</div>
         <div class="stats-grid">
           <div class="stat-box">
