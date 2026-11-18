@@ -4,6 +4,7 @@ import { AetherGame, HudSnapshot } from './game';
 import { fetchCloudProfile, fetchGlobalLeaderboard, saveCloudProfile, submitGlobalScore } from './leaderboard';
 import { CoopNetwork } from './network';
 import {
+  ACHIEVEMENTS,
   getMetaCost,
   getPilotRank,
   loadProfile,
@@ -31,6 +32,9 @@ const levelupScreen = el<HTMLDivElement>('levelup-screen');
 const pauseScreen = el<HTMLDivElement>('pause-screen');
 const controlsScreen = el<HTMLDivElement>('controls-screen');
 const scoresScreen = el<HTMLDivElement>('scores-screen');
+const titlesScreen = el<HTMLDivElement>('titles-screen');
+const capsuleScreen = el<HTMLDivElement>('capsule-screen');
+const abyssScreen = el<HTMLDivElement>('abyss-screen');
 const gameoverScreen = el<HTMLDivElement>('gameover-screen');
 const waveBanner = el<HTMLDivElement>('wave-banner');
 const touchLayer = el<HTMLDivElement>('touch-layer');
@@ -135,6 +139,19 @@ function applyThemeToCSS(theme: ThemePalette): void {
   localStorage.setItem(THEME_KEY, theme.id);
 }
 
+function unlockAchievement(id: string): void {
+  if (profile.unlockedAchievements.includes(id)) return;
+  const def = ACHIEVEMENTS.find((a) => a.id === id);
+  if (!def) return;
+  profile.unlockedAchievements.push(id);
+  profile.shards += def.reward;
+  if (!profile.equippedTitle) profile.equippedTitle = def.titleTag;
+  saveProfile(profile);
+  void saveCloudProfile(profile);
+  refreshLobbyUI();
+  showWaveBanner(`🏅 ДОСТИЖЕНИЕ: ${def.name}`, `ТИТУЛ ${def.titleTag} +${def.reward} ✦`);
+}
+
 const game = new AetherGame(canvas, {
   onHudUpdate: renderHud,
   onLevelUp: renderLevelUp,
@@ -142,6 +159,10 @@ const game = new AetherGame(canvas, {
   onWaveBanner: showWaveBanner,
   onPvpHit: (dmg) => {
     coop.send({ type: 'pvp_hit', dmg });
+  },
+  onAchievement: unlockAchievement,
+  onAbyssChoice: () => {
+    abyssScreen.classList.remove('hidden');
   },
 });
 
@@ -223,6 +244,21 @@ function refreshLobbyUI(): void {
 
   const ship = SHIP_CLASSES.find((s) => s.id === profile.selectedShip) || SHIP_CLASSES[0];
   el('selected-ship-badge').textContent = ship.name;
+  el('hero-ship-name').textContent = ship.name;
+  el('hero-ship-ulti').textContent = `Ульта: ${ship.ultiName}`;
+  el('hud-ulti-name').textContent = ship.ultiName;
+
+  const titleEl = el('pilot-title-tag');
+  if (profile.equippedTitle) {
+    const ach = ACHIEVEMENTS.find((a) => a.titleTag === profile.equippedTitle);
+    titleEl.textContent = profile.equippedTitle;
+    titleEl.style.color = ach?.color || '#ffb703';
+    titleEl.classList.remove('hidden');
+  } else {
+    titleEl.classList.add('hidden');
+  }
+
+  el('btn-capsule').classList.toggle('claimed', profile.capsuleClaimedToday);
 
   const hasClaimable =
     !profile.dailyClaimedToday || profile.quests.some((q) => q.progress >= q.target && !q.claimed);
@@ -601,6 +637,10 @@ function handleGameOver(summary: {
     date: new Date().toLocaleDateString('ru-RU'),
   });
 
+  if (summary.victory && summary.mode === 'pvp') {
+    unlockAchievement('ach_duel');
+  }
+
   lastRunScore = summary.score;
   const baseUrl = `${window.location.origin}${window.location.pathname}`;
   lastChallengeUrl = `${baseUrl}?challenge=${summary.score}&by=${encodeURIComponent(profile.callsign)}`;
@@ -733,6 +773,118 @@ el('btn-close-hangar').onclick = () => hangarScreen.classList.add('hidden');
 el('btn-quests').onclick = () => {
   renderQuests();
   questsScreen.classList.remove('hidden');
+};
+
+const cycleUnlockedShip = (dir: number) => {
+  const unlocked = SHIP_CLASSES.filter((s) => profile.unlockedShips.includes(s.id));
+  if (unlocked.length <= 1) {
+    renderHangar();
+    hangarScreen.classList.remove('hidden');
+    return;
+  }
+  const idx = unlocked.findIndex((s) => s.id === profile.selectedShip);
+  const next = unlocked[(idx + dir + unlocked.length) % unlocked.length];
+  profile.selectedShip = next.id;
+  saveProfile(profile);
+  refreshLobbyUI();
+};
+el('btn-prev-ship').onclick = () => cycleUnlockedShip(-1);
+el('btn-next-ship').onclick = () => cycleUnlockedShip(1);
+
+function renderTitlesModal(): void {
+  const list = el('titles-list');
+  list.innerHTML = '';
+  for (const a of ACHIEVEMENTS) {
+    const unlocked = profile.unlockedAchievements.includes(a.id);
+    const equipped = profile.equippedTitle === a.titleTag;
+    const item = document.createElement('div');
+    item.className = 'quest-item';
+    item.innerHTML = `
+      <div style="flex:1;">
+        <div style="font-family:'Exo 2',sans-serif;font-weight:700;font-size:0.88rem;color:${a.color}">${a.titleTag} ${a.name}</div>
+        <div style="font-size:0.74rem;color:var(--text-dim);">${a.description} (+${a.reward} ✦)</div>
+      </div>
+    `;
+    const btn = document.createElement('button');
+    btn.className = equipped ? 'mini-btn secondary' : 'mini-btn';
+    if (!unlocked) {
+      btn.textContent = 'ЗАКРЫТО';
+      btn.disabled = true;
+    } else if (equipped) {
+      btn.textContent = 'НАДЕТО ✓';
+      btn.disabled = true;
+    } else {
+      btn.textContent = 'НАДЕТЬ';
+      btn.onclick = () => {
+        profile.equippedTitle = a.titleTag;
+        saveProfile(profile);
+        void saveCloudProfile(profile);
+        renderTitlesModal();
+        refreshLobbyUI();
+      };
+    }
+    item.appendChild(btn);
+    list.appendChild(item);
+  }
+}
+
+el('btn-titles').onclick = () => {
+  renderTitlesModal();
+  titlesScreen.classList.remove('hidden');
+};
+el('btn-close-titles').onclick = () => titlesScreen.classList.add('hidden');
+
+el('btn-capsule').onclick = () => {
+  const btn = el<HTMLButtonElement>('btn-open-capsule');
+  const res = el('capsule-result');
+  if (profile.capsuleClaimedToday) {
+    res.textContent = 'Ты уже открыл капсулу сегодня! Заходи завтра за новым бонусом.';
+    btn.disabled = true;
+    btn.textContent = 'ОТКРЫТО ✓';
+  } else {
+    res.textContent = 'Открой капсулу дня и получи случайный бонус!';
+    btn.disabled = false;
+    btn.textContent = 'ОТКРЫТЬ КАПСУЛУ';
+  }
+  capsuleScreen.classList.remove('hidden');
+};
+el('btn-close-capsule').onclick = () => capsuleScreen.classList.add('hidden');
+
+el('btn-open-capsule').onclick = () => {
+  if (profile.capsuleClaimedToday) return;
+  profile.capsuleClaimedToday = true;
+  const roll = Math.random();
+  let msg = '';
+  if (roll < 0.35) {
+    profile.shards += 45;
+    msg = '🎉 Выпало +45 ✦ Эфирных Осколков!';
+  } else if (roll < 0.6) {
+    profile.shards += 75;
+    msg = '💎 ДЖЕКПОТ! Выпало +75 ✦ Эфирных Осколков!';
+  } else if (roll < 0.8) {
+    profile.nextRunBuff = 'shield';
+    msg = '🛡 Выпал Стартовый Силовой Щит на следующий бой!';
+  } else {
+    profile.nextRunBuff = 'xp';
+    msg = '⚡ Выпало +50% Опыта на следующий бой!';
+  }
+  sound.playLevelUp();
+  saveProfile(profile);
+  void saveCloudProfile(profile);
+  refreshLobbyUI();
+  el('capsule-result').textContent = msg;
+  const btn = el<HTMLButtonElement>('btn-open-capsule');
+  btn.disabled = true;
+  btn.textContent = 'ПОЛУЧЕНО ✓';
+};
+
+el('btn-go-abyss').onclick = () => {
+  abyssScreen.classList.add('hidden');
+  game.continueToAbyss();
+};
+el('btn-claim-win').onclick = () => {
+  abyssScreen.classList.add('hidden');
+  game.finishVictory();
 };
 el('btn-close-quests').onclick = () => questsScreen.classList.add('hidden');
 

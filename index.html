@@ -95,7 +95,7 @@
           </button>
           <button id="btn-nova" class="ability-pill nova-pill">
             <span class="key-hint">E / SHIFT</span>
-            <span class="ab-name">💥 НОВА</span>
+            <span id="hud-ulti-name" class="ab-name">⚡ ГИПЕР-ЛУЧ</span>
             <div class="ab-track"><div id="nova-bar" class="ab-fill nova-fill"></div></div>
           </button>
         </div>
@@ -110,8 +110,10 @@
           <div class="pilot-identity">
             <input id="pilot-callsign" class="callsign-input" maxlength="12" value="ПИЛОТ" title="Изменить позывной" />
             <span id="pilot-rank" class="rank-pill">РЕКРУТ</span>
+            <span id="pilot-title-tag" class="rank-pill hidden"></span>
           </div>
           <div class="header-right">
+            <button id="btn-capsule" class="capsule-btn" title="Капсула дня">🎁</button>
             <div class="shards-pill" title="Эфирные Осколки">
               <span>✦</span>
               <strong id="pilot-shards">0</strong>
@@ -120,7 +122,7 @@
           </div>
         </div>
 
-        <!-- Центр: Лого, Цель, Режим, Цвет, Старт -->
+        <!-- Центр: Лого, Цель, Режим, Корабль, Цвет, Старт -->
         <div class="lobby-hero">
           <div id="challenge-banner" class="challenge-banner hidden"></div>
 
@@ -133,6 +135,15 @@
             <button class="mode-tab" data-mode="daily">📅 ДЕНЬ</button>
           </div>
 
+          <div class="ship-showcase">
+            <button id="btn-prev-ship" class="ship-arrow" title="Предыдущий">‹</button>
+            <div class="ship-showcase-info">
+              <strong id="hero-ship-name">ИСТРЕБИТЕЛЬ</strong>
+              <span id="hero-ship-ulti">Ульта: ⚡ ГИПЕР-ЛУЧ</span>
+            </div>
+            <button id="btn-next-ship" class="ship-arrow" title="Следующий">›</button>
+          </div>
+
           <div id="theme-grid" class="theme-dots"></div>
 
           <button id="btn-start" class="btn-primary btn-launch">
@@ -142,7 +153,7 @@
         </div>
 
         <!-- Нижний док -->
-        <div class="lobby-dock glass-bar">
+        <div class="lobby-dock lobby-dock-5 glass-bar">
           <button id="btn-hangar" class="dock-btn">
             <span class="dock-ico">🛠</span>
             <span>Ангар</span>
@@ -151,6 +162,10 @@
             <span class="dock-ico">🎯</span>
             <span>Задания</span>
             <span id="quest-dot" class="notify-dot hidden"></span>
+          </button>
+          <button id="btn-titles" class="dock-btn">
+            <span class="dock-ico">🏅</span>
+            <span>Титулы</span>
           </button>
           <button id="btn-coop" class="dock-btn">
             <span class="dock-ico">👥</span>
@@ -300,6 +315,41 @@
           <button id="btn-retry" class="btn-primary">🚀 ЕЩЁ РАЗ</button>
           <button id="btn-challenge-friend" class="btn-secondary">⚔️ БРОСИТЬ ВЫЗОВ ДРУГУ</button>
           <button id="btn-go-menu" class="btn-ghost">В ГЛАВНОЕ МЕНЮ</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ДОСТИЖЕНИЯ И ТИТУЛЫ -->
+    <div id="titles-screen" class="overlay hidden">
+      <div class="glass-panel compact-panel modal-scroll">
+        <h2>🏅 ДОСТИЖЕНИЯ И ТИТУЛЫ</h2>
+        <div id="titles-list" class="quests-list"></div>
+        <button id="btn-close-titles" class="btn-primary" style="width: 100%; margin-top: 14px">НАЗАД</button>
+      </div>
+    </div>
+
+    <!-- КАПСУЛА УДАЧИ -->
+    <div id="capsule-screen" class="overlay hidden">
+      <div class="glass-panel compact-panel">
+        <div class="modal-kicker">ЕЖЕДНЕВНЫЙ ПОДАРОК</div>
+        <h2>🎁 КАПСУЛА УДАЧИ</h2>
+        <p id="capsule-result" class="coop-desc">Открой капсулу дня и получи случайный бонус!</p>
+        <button id="btn-open-capsule" class="btn-primary" style="width: 100%">ОТКРЫТЬ КАПСУЛУ</button>
+        <button id="btn-close-capsule" class="btn-ghost" style="margin-top: 10px">ЗАКРЫТЬ</button>
+      </div>
+    </div>
+
+    <!-- ВЫБОР ПОСЛЕ 10 ВОЛНЫ: ПОБЕДА ИЛИ БЕЗДНА -->
+    <div id="abyss-screen" class="overlay hidden">
+      <div class="glass-panel compact-panel">
+        <div class="modal-kicker">СЕКТОР ЗАЧИЩЕН!</div>
+        <h2>🏆 БОСС ПОВЕРЖЕН</h2>
+        <p class="coop-desc">
+          Ты прошёл 10 волн! Забери победу или рискни и прыгни в <b>Бездну (11+ волна)</b> — там награда Осколками <b>x2</b>!
+        </p>
+        <div class="cta-col">
+          <button id="btn-go-abyss" class="btn-primary">🌀 ПРОДОЛЖИТЬ В БЕЗДНУ (x2 ✦)</button>
+          <button id="btn-claim-win" class="btn-secondary">🏆 ЗАБРАТЬ ПОБЕДУ</button>
         </div>
       </div>
     </div>

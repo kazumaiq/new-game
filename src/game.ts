@@ -61,6 +61,8 @@ export interface GameCallbacks {
   }) => void;
   onWaveBanner: (title: string, subtitle: string) => void;
   onPvpHit?: (damage: number) => void;
+  onAchievement?: (id: string) => void;
+  onAbyssChoice?: () => void;
 }
 
 interface Star {
@@ -152,9 +154,21 @@ export class AetherGame {
 
   private profile: PlayerProfile | null = null;
   private greedMult = 1;
+  private xpBuffMult = 1;
   public mode: GameMode = 'classic';
   private blitzTimer = 180;
   private blitzBossSpawned = false;
+  private inAbyss = false;
+  private bonusShards = 0;
+  private bossDamagedPlayer = false;
+  private slowMoTimer = 0;
+  private beamTimer = 0;
+  private ramTimer = 0;
+  private cloneTimer = 0;
+  private eventTimer = 28;
+  private powerZone: { x: number; y: number; radius: number; life: number } | null = null;
+  private courier: { x: number; y: number; vx: number; vy: number; hp: number; maxHp: number; life: number } | null = null;
+  private meteors: Array<{ x: number; y: number; timer: number; radius: number }> = [];
   private coopRole: NetRole = 'none';
   private remotePlayer: RemotePlayerState = {
     connected: false,
@@ -476,6 +490,31 @@ export class AetherGame {
     }
   }
 
+  public continueToAbyss(): void {
+    this.inAbyss = true;
+    this.greedMult *= 2;
+    this.state = 'playing';
+    this.startWave(this.wave + 1, false);
+    this.callbacks.onWaveBanner('БЕЗДНА ОТКРЫТА', 'НАГРАДА ОСКОЛКАМИ x2');
+    this.pushHud();
+  }
+
+  public finishVictory(): void {
+    this.state = 'gameover';
+    this.pushHud();
+    const rawShards = Math.max(25, Math.floor(this.kills * 0.5 + this.wave * 10)) + 100 + this.bonusShards;
+    this.callbacks.onGameOver({
+      score: this.score + 5000,
+      wave: this.wave,
+      kills: this.kills,
+      maxCombo: this.maxCombo,
+      shards: Math.round(rawShards * this.greedMult),
+      victory: true,
+      mode: this.mode,
+      upgrades: { ...this.acquiredUpgrades },
+    });
+  }
+
   public triggerNova(): void {
     if (this.state !== 'playing') return;
     if (this.player.novaCharge < 100) return;
@@ -484,28 +523,38 @@ export class AetherGame {
     this.player.invulnTimer = Math.max(this.player.invulnTimer, 0.9);
     sound.playNova();
     this.vibrate(60);
-    this.addShake(18);
-    this.hitStop = 0.06;
+    this.addShake(16);
 
-    this.spawnShockwave(this.player.x, this.player.y, 700, this.theme.primary, 8);
-    this.spawnShockwave(this.player.x, this.player.y, 540, this.theme.accent, 5);
-
-    for (let i = this.bullets.length - 1; i >= 0; i--) {
-      if (this.bullets[i].isEnemy) {
-        this.spawnParticles(this.bullets[i].x, this.bullets[i].y, 4, this.theme.accent, 140);
-        this.bullets.splice(i, 1);
+    const shipId = this.profile?.selectedShip || 'interceptor';
+    if (shipId === 'interceptor') {
+      this.beamTimer = 1.6;
+      this.addFloatingText(this.player.x, this.player.y - 38, '⚡ ГИПЕР-ЛУЧ!', this.theme.primary, 1.3);
+    } else if (shipId === 'juggernaut') {
+      this.ramTimer = 3.5;
+      this.player.invulnTimer = 3.5;
+      this.addFloatingText(this.player.x, this.player.y - 38, '🛡 ЭНЕРГО-ТАРАН!', '#ffb703', 1.3);
+    } else if (shipId === 'phantom') {
+      this.cloneTimer = 5.5;
+      this.addFloatingText(this.player.x, this.player.y - 38, '👥 ТЕНЕВЫЕ КЛОНЫ!', this.theme.accent, 1.3);
+    } else if (shipId === 'tesla') {
+      this.spawnShockwave(this.player.x, this.player.y, 700, '#70e0ff', 7);
+      for (let i = this.enemies.length - 1; i >= 0; i--) {
+        const e = this.enemies[i];
+        this.arcs.push({
+          points: [
+            { x: this.player.x, y: this.player.y },
+            { x: (this.player.x + e.x) / 2 + (Math.random() - 0.5) * 40, y: (this.player.y + e.y) / 2 + (Math.random() - 0.5) * 40 },
+            { x: e.x, y: e.y },
+          ],
+          color: '#70e0ff',
+          life: 0.35,
+          maxLife: 0.35,
+        });
+        this.damageEnemy(e, 190 + this.wave * 22, true);
       }
+      this.addFloatingText(this.player.x, this.player.y - 38, '🌩 ГРОЗОВАЯ БУРЯ!', '#70e0ff', 1.3);
     }
 
-    const novaRadius = 700;
-    for (let i = this.enemies.length - 1; i >= 0; i--) {
-      const e = this.enemies[i];
-      if (Math.hypot(e.x - this.player.x, e.y - this.player.y) <= novaRadius) {
-        this.damageEnemy(e, 180 + this.wave * 20, true);
-      }
-    }
-
-    this.addFloatingText(this.player.x, this.player.y - 40, 'ЭФИРНАЯ НОВА!', this.theme.primary, 1.3);
     this.pushHud();
   }
 
@@ -591,6 +640,10 @@ export class AetherGame {
         break;
     }
 
+    if (id.startsWith('evo_')) {
+      this.callbacks.onAchievement?.('ach_evo');
+    }
+
     this.state = 'playing';
     this.player.invulnTimer = Math.max(this.player.invulnTimer, 0.75);
     this.spawnShockwave(this.player.x, this.player.y, 190, this.theme.primary, 4);
@@ -669,8 +722,20 @@ export class AetherGame {
     this.comboTimer = 0;
     this.bossActive = false;
     this.greedMult = 1;
+    this.xpBuffMult = 1;
     this.blitzTimer = 180;
     this.blitzBossSpawned = false;
+    this.inAbyss = false;
+    this.bonusShards = 0;
+    this.bossDamagedPlayer = false;
+    this.slowMoTimer = 0;
+    this.beamTimer = 0;
+    this.ramTimer = 0;
+    this.cloneTimer = 0;
+    this.eventTimer = 26;
+    this.powerZone = null;
+    this.courier = null;
+    this.meteors = [];
 
     if (!attractMode && this.mode === 'pvp') {
       this.player.x = this.coopRole === 'host' ? 450 : 1950;
@@ -701,6 +766,12 @@ export class AetherGame {
       if ((m.meta_startlvl || 0) > 0) {
         this.player.xp = this.player.xpToNext;
       }
+      if (this.profile.nextRunBuff === 'shield') {
+        this.applyUpgrade('aegisshield');
+      } else if (this.profile.nextRunBuff === 'xp') {
+        this.xpBuffMult = 1.5;
+      }
+      this.profile.nextRunBuff = 'none';
     }
 
     this.camX = this.player.x;
@@ -717,6 +788,7 @@ export class AetherGame {
     this.spawnTimer = waveNum === 1 ? 0.8 : 0.4;
 
     if (this.bossActive && !attractMode) {
+      this.bossDamagedPlayer = false;
       sound.playBossWarning();
       this.callbacks.onWaveBanner(
         `ВОЛНА ${String(waveNum).padStart(2, '0')} — БОСС`,
@@ -852,7 +924,49 @@ export class AetherGame {
       return;
     }
 
+    if (this.slowMoTimer > 0) {
+      this.slowMoTimer = Math.max(0, this.slowMoTimer - dt);
+      dt *= 0.28;
+    }
+
     const isTitle = this.state === 'title';
+
+    if (this.beamTimer > 0) {
+      this.beamTimer = Math.max(0, this.beamTimer - dt);
+      const bx = Math.cos(this.player.angle);
+      const by = Math.sin(this.player.angle);
+      for (let i = this.enemies.length - 1; i >= 0; i--) {
+        const e = this.enemies[i];
+        const ex = e.x - this.player.x;
+        const ey = e.y - this.player.y;
+        const proj = ex * bx + ey * by;
+        if (proj > 0 && proj < 900) {
+          const perp = Math.abs(ex * -by + ey * bx);
+          if (perp < e.radius + 26) {
+            this.damageEnemy(e, (this.stats.damage * 14) * dt, false);
+          }
+        }
+      }
+    }
+
+    if (this.ramTimer > 0) {
+      this.ramTimer = Math.max(0, this.ramTimer - dt);
+      for (let i = this.enemies.length - 1; i >= 0; i--) {
+        const e = this.enemies[i];
+        const d = Math.hypot(e.x - this.player.x, e.y - this.player.y);
+        if (d < e.radius + 72) {
+          this.damageEnemy(e, (this.stats.damage * 11) * dt, false);
+        }
+      }
+    }
+
+    if (this.cloneTimer > 0) {
+      this.cloneTimer = Math.max(0, this.cloneTimer - dt);
+    }
+
+    if (!isTitle && this.mode !== 'pvp') {
+      this.updateArenaEvents(dt);
+    }
 
     if (this.combo > 0) {
       this.comboTimer -= dt;
@@ -1104,7 +1218,11 @@ export class AetherGame {
 
     const count = this.stats.projectiles;
     const isCrit = Math.random() < this.stats.critChance;
-    const dmg = this.stats.damage * (isCrit ? 2.2 : 1);
+    const zoneMult =
+      this.powerZone && Math.hypot(p.x - this.powerZone.x, p.y - this.powerZone.y) <= this.powerZone.radius
+        ? 2
+        : 1;
+    const dmg = this.stats.damage * (isCrit ? 2.2 : 1) * zoneMult;
 
     for (let i = 0; i < count; i++) {
       const offset =
@@ -1148,6 +1266,28 @@ export class AetherGame {
           ricochetLeft: 0,
           life: 2.6,
           color: '#ffb703',
+          trail: [],
+          hitIds: new Set(),
+        });
+      }
+    }
+
+    if (this.cloneTimer > 0) {
+      const perpX = -Math.sin(p.angle) * 46;
+      const perpY = Math.cos(p.angle) * 46;
+      for (const side of [-1, 1]) {
+        this.bullets.push({
+          x: p.x + perpX * side,
+          y: p.y + perpY * side,
+          vx: Math.cos(p.angle) * this.stats.projectileSpeed,
+          vy: Math.sin(p.angle) * this.stats.projectileSpeed,
+          radius: 4.5,
+          damage: dmg * 0.75,
+          isEnemy: false,
+          pierceLeft: 0,
+          ricochetLeft: 0,
+          life: 1.4,
+          color: this.theme.accent,
           trail: [],
           hitIds: new Set(),
         });
@@ -1415,6 +1555,21 @@ export class AetherGame {
           continue;
         }
       }
+      if (!isTitle && this.courier && Math.hypot(b.x - this.courier.x, b.y - this.courier.y) < b.radius + 22) {
+        this.courier.hp -= b.damage;
+        this.spawnParticles(b.x, b.y, 5, '#ffd166', 180);
+        this.bullets.splice(i, 1);
+        if (this.courier.hp <= 0) {
+          this.bonusShards += 25;
+          this.addFloatingText(this.courier.x, this.courier.y - 20, '+25 ✦ КУРЬЕР СБИТ!', '#ffd166', 1.25);
+          this.spawnShockwave(this.courier.x, this.courier.y, 160, '#ffd166', 4);
+          this.spawnParticles(this.courier.x, this.courier.y, 28, '#ffd166', 320, 'shard');
+          sound.playExplosion(1.4);
+          this.callbacks.onAchievement?.('ach_courier');
+          this.courier = null;
+        }
+        continue;
+      }
       for (let j = this.enemies.length - 1; j >= 0; j--) {
         const e = this.enemies[j];
         if (b.hitIds.has(e.id)) continue;
@@ -1535,6 +1690,9 @@ export class AetherGame {
       this.combo++;
       this.comboTimer = 3.2;
       if (this.combo > this.maxCombo) this.maxCombo = this.combo;
+      if (this.combo >= 40 && this.state === 'playing') {
+        this.callbacks.onAchievement?.('ach_combo50');
+      }
 
       const mult = Math.min(8, 1 + Math.floor(this.combo / 5));
       this.score += e.scoreValue * mult;
@@ -1550,21 +1708,17 @@ export class AetherGame {
       this.addShake(isBoss ? 20 : e.kind === 'splitter' ? 6 : 3);
       if (isBoss) {
         this.hitStop = 0.08;
+        this.slowMoTimer = 0.55;
         this.bossActive = false;
-        if (this.mode === 'classic' && this.wave >= 10 && this.state === 'playing') {
-          this.state = 'gameover';
+        this.addFloatingText(e.x, e.y - 50, 'БОСС УНИЧТОЖЕН!', '#ffb703', 1.4);
+        if (!this.bossDamagedPlayer && this.state === 'playing') {
+          this.callbacks.onAchievement?.('ach_no_hit_boss');
+        }
+        if (this.mode === 'classic' && this.wave >= 10 && !this.inAbyss && this.state === 'playing') {
+          this.callbacks.onAchievement?.('ach_first_win');
+          this.state = 'paused';
           this.pushHud();
-          const rawShards = Math.max(25, Math.floor(this.kills * 0.5 + this.wave * 10)) + 100;
-          this.callbacks.onGameOver({
-            score: this.score + 5000,
-            wave: this.wave,
-            kills: this.kills,
-            maxCombo: this.maxCombo,
-            shards: Math.round(rawShards * this.greedMult),
-            victory: true,
-            mode: this.mode,
-            upgrades: { ...this.acquiredUpgrades },
-          });
+          this.callbacks.onAbyssChoice?.();
           return;
         }
       }
@@ -1623,6 +1777,77 @@ export class AetherGame {
     }
   }
 
+  private updateArenaEvents(dt: number): void {
+    this.eventTimer -= dt;
+    if (this.eventTimer <= 0 && this.wave >= 2) {
+      this.eventTimer = 38 + Math.random() * 18;
+      const roll = Math.random();
+      if (roll < 0.36) {
+        const a = Math.random() * Math.PI * 2;
+        this.courier = {
+          x: this.player.x + Math.cos(a) * 520,
+          y: this.player.y + Math.sin(a) * 520,
+          vx: -Math.cos(a) * 185 + (Math.random() - 0.5) * 90,
+          vy: -Math.sin(a) * 185 + (Math.random() - 0.5) * 90,
+          hp: 90 + this.wave * 20,
+          maxHp: 90 + this.wave * 20,
+          life: 10,
+        };
+        this.callbacks.onWaveBanner('ЗОЛОТОЙ КУРЬЕР', 'СБЕЙ ЕГО ЗА 10 СЕК ДЛЯ +25 ✦');
+      } else if (roll < 0.72) {
+        this.powerZone = {
+          x: Math.max(200, Math.min(this.arenaW - 200, this.player.x + (Math.random() - 0.5) * 320)),
+          y: Math.max(200, Math.min(this.arenaH - 200, this.player.y + (Math.random() - 0.5) * 320)),
+          radius: 135,
+          life: 12,
+        };
+        this.callbacks.onWaveBanner('ЗОНА УСИЛЕНИЯ', 'ВСТАНЬ В КРУГ ДЛЯ 2x УРОНА');
+      } else {
+        for (let m = 0; m < 5; m++) {
+          this.meteors.push({
+            x: this.player.x + (Math.random() - 0.5) * 460,
+            y: this.player.y + (Math.random() - 0.5) * 460,
+            timer: 1.3 + m * 0.25,
+            radius: 95,
+          });
+        }
+        this.callbacks.onWaveBanner('МЕТЕОРНЫЙ ШТОРМ', 'УКЛОНЯЙСЯ ОТ КРАСНЫХ ЗОН!');
+      }
+    }
+
+    if (this.powerZone) {
+      this.powerZone.life -= dt;
+      if (this.powerZone.life <= 0) this.powerZone = null;
+    }
+
+    if (this.courier) {
+      this.courier.life -= dt;
+      this.courier.x += this.courier.vx * dt;
+      this.courier.y += this.courier.vy * dt;
+      if (this.courier.life <= 0) this.courier = null;
+    }
+
+    for (let i = this.meteors.length - 1; i >= 0; i--) {
+      const m = this.meteors[i];
+      m.timer -= dt;
+      if (m.timer <= 0) {
+        this.meteors.splice(i, 1);
+        this.spawnShockwave(m.x, m.y, m.radius, '#ff5400', 5);
+        this.spawnParticles(m.x, m.y, 18, '#ff7b00', 250, 'shard');
+        sound.playExplosion(1.1);
+        for (let j = this.enemies.length - 1; j >= 0; j--) {
+          const e = this.enemies[j];
+          if (Math.hypot(e.x - m.x, e.y - m.y) <= m.radius + e.radius) {
+            this.damageEnemy(e, 140 + this.wave * 15, false);
+          }
+        }
+        if (this.player.invulnTimer <= 0 && Math.hypot(this.player.x - m.x, this.player.y - m.y) < m.radius) {
+          this.damagePlayer(18);
+        }
+      }
+    }
+  }
+
   private damagePlayer(amount: number): void {
     const p = this.player;
 
@@ -1638,6 +1863,7 @@ export class AetherGame {
     }
 
     p.hp -= amount;
+    if (this.bossActive) this.bossDamagedPlayer = true;
     p.invulnTimer = 0.85;
     this.combo = 0;
     sound.playDamage();
@@ -1650,7 +1876,7 @@ export class AetherGame {
       p.hp = 0;
       this.state = 'gameover';
       this.pushHud();
-      const rawShards = Math.max(5, Math.floor(this.kills * 0.45 + this.wave * 6));
+      const rawShards = Math.max(5, Math.floor(this.kills * 0.45 + this.wave * 6)) + this.bonusShards;
       const shards = Math.round(rawShards * this.greedMult);
       this.callbacks.onGameOver({
         score: this.score,
@@ -1690,7 +1916,7 @@ export class AetherGame {
         this.orbs.splice(i, 1);
         if (this.state === 'playing') {
           sound.playPickup();
-          const xpMult = this.mode === 'blitz' ? 1.6 : 1;
+          const xpMult = (this.mode === 'blitz' ? 1.6 : 1) * this.xpBuffMult;
           p.xp += Math.ceil(o.value * xpMult);
           p.novaCharge = Math.min(100, p.novaCharge + 1.6);
           if (p.xp >= p.xpToNext) {
@@ -1940,6 +2166,51 @@ export class AetherGame {
       ctx.fill();
     }
 
+    // Arena Events Render
+    if (this.powerZone) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255, 183, 3, 0.75)';
+      ctx.fillStyle = 'rgba(255, 183, 3, 0.1)';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([14, 8]);
+      ctx.beginPath();
+      ctx.arc(this.powerZone.x, this.powerZone.y, this.powerZone.radius, this.time * 2, this.time * 2 + Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    for (const m of this.meteors) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255, 60, 0, 0.8)';
+      ctx.fillStyle = 'rgba(255, 60, 0, 0.14)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(m.x, m.y, m.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    if (this.courier) {
+      ctx.save();
+      ctx.translate(this.courier.x, this.courier.y);
+      ctx.rotate(this.time * 4);
+      ctx.strokeStyle = '#ffd166';
+      ctx.fillStyle = 'rgba(255, 209, 102, 0.32)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = (i * Math.PI * 2) / 6;
+        if (i === 0) ctx.moveTo(Math.cos(a) * 20, Math.sin(a) * 20);
+        else ctx.lineTo(Math.cos(a) * 20, Math.sin(a) * 20);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // PowerUps
     for (const pu of this.powerups) {
       const col = pu.kind === 'heal' ? '#00ff87' : pu.kind === 'magnet' ? '#00f5ff' : '#ffb703';
@@ -2018,6 +2289,44 @@ export class AetherGame {
 
     for (const e of this.enemies) {
       this.renderEnemy(ctx, e);
+    }
+
+    if (this.beamTimer > 0) {
+      ctx.save();
+      ctx.translate(this.player.x, this.player.y);
+      ctx.rotate(this.player.angle);
+      ctx.fillStyle = this.hexToRgba(this.theme.primary, 0.32);
+      ctx.fillRect(16, -24, 900, 48);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(16, -7, 900, 14);
+      ctx.restore();
+    }
+
+    if (this.ramTimer > 0) {
+      ctx.save();
+      ctx.strokeStyle = '#ffb703';
+      ctx.fillStyle = 'rgba(255, 183, 3, 0.18)';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(this.player.x, this.player.y, 70, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    if (this.cloneTimer > 0) {
+      const perpX = -Math.sin(this.player.angle) * 46;
+      const perpY = Math.cos(this.player.angle) * 46;
+      for (const side of [-1, 1]) {
+        ctx.save();
+        ctx.translate(this.player.x + perpX * side, this.player.y + perpY * side);
+        ctx.rotate(this.player.angle);
+        ctx.strokeStyle = this.theme.accent;
+        ctx.lineWidth = 2;
+        this.traceShipPath(ctx, 13);
+        ctx.stroke();
+        ctx.restore();
+      }
     }
 
     this.renderPlayer(ctx);

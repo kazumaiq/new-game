@@ -1587,3 +1587,72 @@ body {
     rgba(3, 6, 18, 0.55) 20px
   );
 }
+
+/* IMPROVED LOBBY SHOWCASE, CAPSULE & 5-TAB DOCK */
+.capsule-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 183, 3, 0.45);
+  background: rgba(255, 183, 3, 0.14);
+  font-size: 1rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  animation: pulse 1.8s infinite;
+}
+
+.capsule-btn.claimed {
+  opacity: 0.45;
+  animation: none;
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.ship-showcase {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 8px 10px;
+}
+
+.ship-arrow {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ship-showcase-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.ship-showcase-info strong {
+  font-family: 'Exo 2', sans-serif;
+  font-size: 0.9rem;
+  letter-spacing: 0.08em;
+  color: var(--primary);
+}
+
+.ship-showcase-info span {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+
+.lobby-dock-5 {
+  grid-template-columns: repeat(5, 1fr);
+}
