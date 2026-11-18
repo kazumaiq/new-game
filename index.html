@@ -8,10 +8,10 @@
     />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <title>AETHER RIFT — Неоновый Космический Рогалик</title>
+    <title>AETHER RIFT — Неоновый Космический Рогалик Онлайн</title>
     <meta
       name="description"
-      content="Управляй неоновым истребителем в бесконечной биолюминесцентной арене. Собирай апгрейды, бей цепной молнией и уничтожь Монолит."
+      content="Прокачивай корабли, выполняй задания дня, играй вдвоём онлайн и соревнуйся с друзьями в AETHER RIFT!"
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -69,7 +69,7 @@
           </div>
           <div id="combo-badge" class="combo-badge hidden">
             <span id="combo-mult">x2</span>
-            <small id="combo-count">10 УДАРОВ</small>
+            <small id="combo-count">10 УДАР.</small>
           </div>
           <div class="hud-actions">
             <button id="btn-mute" class="icon-btn" title="Звук">🔊</button>
@@ -98,35 +98,97 @@
     <!-- ГЛАВНЫЙ ЭКРАН -->
     <div id="title-screen" class="overlay">
       <div class="title-card glass-panel">
-        <div class="badge-row">
-          <span class="live-dot"></span>
-          <span>60 FPS НЕОНОВЫЙ АРКАДНЫЙ РОГАЛИК</span>
+        <div class="pilot-header">
+          <div class="pilot-identity">
+            <input id="pilot-callsign" class="callsign-input" maxlength="14" value="ПИЛОТ" title="Изменить позывной" />
+            <span id="pilot-rank" class="rank-pill">РЕКРУТ</span>
+          </div>
+          <div class="shards-pill" title="Эфирные Осколки">
+            <span>✦</span>
+            <strong id="pilot-shards">0</strong>
+          </div>
         </div>
+
+        <div id="challenge-banner" class="challenge-banner hidden"></div>
+
         <h1 class="game-title">AETHER <span>RIFT</span></h1>
         <p class="game-tagline">
-          Веди неоновый истребитель сквозь бесконечную космическую бездну. Собирай апгрейды, бей цепной молнией и сокруши Монолит.
+          Космический экшн-рогалик. Прокачивай корабли в Ангаре, выполняй задания дня и зови друзей в онлайн-кооп!
         </p>
 
         <div class="theme-section">
-          <div class="section-label">ВЫБЕРИ СПЕКТР КОРПУСА</div>
+          <div class="section-label">СПЕКТР КОРПУСА</div>
           <div id="theme-grid" class="theme-grid"></div>
         </div>
 
-        <div class="cta-row">
-          <button id="btn-start" class="btn-primary">
-            <span>НАЧАТЬ МИССИЮ</span>
-            <span class="arrow">→</span>
+        <div class="lobby-actions">
+          <button id="btn-start" class="btn-primary btn-launch">
+            <span>🚀 В БОЙ</span>
+            <span id="selected-ship-badge" class="ship-mini-badge">ПЕРЕХВАТЧИК</span>
           </button>
-          <button id="btn-controls" class="btn-secondary">УПРАВЛЕНИЕ И FX</button>
-          <button id="btn-scores" class="btn-secondary">ЗАЛ СЛАВЫ</button>
+
+          <div class="lobby-grid">
+            <button id="btn-hangar" class="btn-secondary">🛠 АНГАР</button>
+            <button id="btn-quests" class="btn-secondary btn-notify-wrap">
+              🎯 ЗАДАНИЯ ДНЯ
+              <span id="quest-dot" class="notify-dot hidden"></span>
+            </button>
+            <button id="btn-coop" class="btn-secondary">👥 ОНЛАЙН КООП</button>
+            <button id="btn-scores" class="btn-secondary">🏆 РЕКОРДЫ</button>
+          </div>
+
+          <button id="btn-controls" class="btn-ghost">⚙️ Управление и графика</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- АНГАР: КОРАБЛИ И ПОСТОЯННАЯ ПРОКАЧКА -->
+    <div id="hangar-screen" class="overlay hidden">
+      <div class="glass-panel modal-scroll">
+        <div class="modal-top-bar">
+          <h2>🛠 АНГАР</h2>
+          <div class="shards-pill"><span>✦</span><strong id="hangar-shards">0</strong></div>
+        </div>
+        <div class="section-label">КЛАССЫ КОРАБЛЕЙ</div>
+        <div id="ships-list" class="ships-list"></div>
+        <div class="section-label" style="margin-top: 18px">ПОСТОЯННЫЕ УЛУЧШЕНИЯ (НАВСЕГДА)</div>
+        <div id="meta-list" class="meta-list"></div>
+        <button id="btn-close-hangar" class="btn-primary" style="width: 100%; margin-top: 16px">ГОТОВО</button>
+      </div>
+    </div>
+
+    <!-- ЗАДАНИЯ ДНЯ И БОНУС -->
+    <div id="quests-screen" class="overlay hidden">
+      <div class="glass-panel compact-panel modal-scroll">
+        <h2>🎯 ЗАДАНИЯ ДНЯ</h2>
+        <div id="daily-bonus-box" class="daily-bonus-box"></div>
+        <div id="quests-list" class="quests-list"></div>
+        <button id="btn-close-quests" class="btn-primary" style="width: 100%; margin-top: 14px">НАЗАД</button>
+      </div>
+    </div>
+
+    <!-- ОНЛАЙН КООП (WEBRTC) -->
+    <div id="coop-screen" class="overlay hidden">
+      <div class="glass-panel compact-panel modal-scroll">
+        <h2>👥 ОНЛАЙН КООП (2 ИГРОКА)</h2>
+        <p class="coop-desc">
+          Играйте вдвоём на одной арене в реальном времени! Создай комнату и отправь ссылку другу в Telegram или WhatsApp.
+        </p>
+        <div id="coop-status" class="coop-status">Не подключено</div>
+
+        <div class="coop-controls">
+          <button id="btn-coop-create" class="btn-primary" style="width: 100%">СОЗДАТЬ КОМНАТУ</button>
+          <button id="btn-coop-invite" class="btn-secondary hidden" style="width: 100%">📤 ПРИГЛАСИТЬ ДРУГА (ССЫЛКА)</button>
+          <button id="btn-coop-start" class="btn-primary hidden" style="width: 100%">🚀 ЗАПУСТИТЬ БОЙ ВДВОЁМ</button>
+
+          <div class="coop-divider">ИЛИ ВОЙТИ ПО КОДУ</div>
+          <div class="coop-join-row">
+            <input id="coop-code-input" class="code-input" maxlength="6" placeholder="Код (напр. 4821)" />
+            <button id="btn-coop-join" class="btn-secondary">ВОЙТИ</button>
+          </div>
         </div>
 
-        <div class="quick-controls-hint">
-          <span><b>WASD / Стик</b> Полёт</span>
-          <span><b>Мышь / Авто</b> Прицел</span>
-          <span><b>Пробел</b> Рывок</span>
-          <span><b>E / Shift</b> Нова</span>
-        </div>
+        <button id="btn-close-coop" class="btn-ghost" style="margin-top: 14px">НАЗАД</button>
       </div>
     </div>
 
@@ -156,37 +218,37 @@
 
     <!-- УПРАВЛЕНИЕ И НАСТРОЙКИ -->
     <div id="controls-screen" class="overlay hidden">
-      <div class="glass-panel compact-panel">
+      <div class="glass-panel compact-panel modal-scroll">
         <h2>УПРАВЛЕНИЕ И ЭФФЕКТЫ</h2>
         <div class="controls-grid">
-          <div><b>WASD / Стрелки</b></div><div>Полёт на ПК (или левый палец на телефоне)</div>
-          <div><b>Мышь / Авто-наведение</b></div><div>Прицел 360° (на телефоне авто-прицел!)</div>
-          <div><b>Пробел / ПКМ</b></div><div>Фазовый Рывок с неуязвимостью</div>
-          <div><b>E / Shift</b></div><div>Эфирная Нова (при 100% заряда)</div>
-          <div><b>Esc</b></div><div>Пауза и настройки</div>
+          <div><b>WASD / Стик</b></div><div>Полёт (на телефоне — левый палец в любом месте)</div>
+          <div><b>Мышь / Авто</b></div><div>Прицел 360° (на телефоне авто-прицел!)</div>
+          <div><b>Пробел / Тап</b></div><div>Фазовый Рывок с неуязвимостью</div>
+          <div><b>E / Shift</b></div><div>Эфирная Нова (100% заряда)</div>
         </div>
         <div class="settings-list" id="title-settings"></div>
-        <button id="btn-close-controls" class="btn-primary">НАЗАД</button>
+        <button id="btn-close-controls" class="btn-primary" style="width: 100%">НАЗАД</button>
       </div>
     </div>
 
     <!-- ЗАЛ СЛАВЫ -->
     <div id="scores-screen" class="overlay hidden">
       <div class="glass-panel compact-panel">
-        <h2>ЗАЛ СЛАВЫ</h2>
+        <h2>🏆 ЗАЛ СЛАВЫ</h2>
         <div id="scores-list" class="scores-list"></div>
-        <button id="btn-close-scores" class="btn-primary">НАЗАД</button>
+        <button id="btn-close-scores" class="btn-primary" style="width: 100%">НАЗАД</button>
       </div>
     </div>
 
     <!-- ЭКРАН ПОРАЖЕНИЯ -->
     <div id="gameover-screen" class="overlay hidden">
-      <div class="glass-panel compact-panel gameover-panel">
+      <div class="glass-panel compact-panel gameover-panel modal-scroll">
         <div id="new-record-badge" class="new-record hidden">★ НОВЫЙ РЕКОРД ★</div>
         <h2>СИГНАЛ ПОТЕРЯН</h2>
+        <div class="earned-shards-banner">Получено <strong id="go-shards">+0 ✦</strong> Эфирных Осколков</div>
         <div class="stats-grid">
           <div class="stat-box">
-            <span>ИТОГОВЫЙ СЧЁТ</span>
+            <span>СЧЁТ</span>
             <strong id="go-score">0</strong>
           </div>
           <div class="stat-box">
@@ -194,7 +256,7 @@
             <strong id="go-wave">1</strong>
           </div>
           <div class="stat-box">
-            <span>ВРАГОВ СБИТО</span>
+            <span>СБИТО</span>
             <strong id="go-kills">0</strong>
           </div>
           <div class="stat-box">
@@ -203,10 +265,10 @@
           </div>
         </div>
         <div id="go-upgrades" class="go-upgrades"></div>
-        <div class="cta-row">
-          <button id="btn-retry" class="btn-primary">ЕЩЁ РАЗ</button>
-          <button id="btn-copy-score" class="btn-secondary">СКОПИРОВАТЬ СЧЁТ</button>
-          <button id="btn-go-menu" class="btn-secondary">В АНГАР</button>
+        <div class="cta-col">
+          <button id="btn-retry" class="btn-primary">🚀 ЕЩЁ РАЗ</button>
+          <button id="btn-challenge-friend" class="btn-secondary">⚔️ БРОСИТЬ ВЫЗОВ ДРУГУ</button>
+          <button id="btn-go-menu" class="btn-ghost">В ГЛАВНОЕ МЕНЮ</button>
         </div>
       </div>
     </div>

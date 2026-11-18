@@ -1,6 +1,15 @@
 import './style.css';
 import { sound } from './audio';
 import { AetherGame, HudSnapshot } from './game';
+import { CoopNetwork } from './network';
+import {
+  getMetaCost,
+  getPilotRank,
+  loadProfile,
+  META_UPGRADES,
+  saveProfile,
+  SHIP_CLASSES,
+} from './progression';
 import { THEMES } from './themes';
 import { GameSettings, HighScoreEntry, ThemePalette, UpgradeDef } from './types';
 import { UPGRADES } from './upgrades';
@@ -14,6 +23,9 @@ const el = <T extends HTMLElement>(id: string): T => document.getElementById(id)
 const canvas = el<HTMLCanvasElement>('game-canvas');
 const hudEl = el<HTMLDivElement>('hud');
 const titleScreen = el<HTMLDivElement>('title-screen');
+const hangarScreen = el<HTMLDivElement>('hangar-screen');
+const questsScreen = el<HTMLDivElement>('quests-screen');
+const coopScreen = el<HTMLDivElement>('coop-screen');
 const levelupScreen = el<HTMLDivElement>('levelup-screen');
 const pauseScreen = el<HTMLDivElement>('pause-screen');
 const controlsScreen = el<HTMLDivElement>('controls-screen');
@@ -24,7 +36,11 @@ const touchLayer = el<HTMLDivElement>('touch-layer');
 
 let activeUpgradeChoices: UpgradeDef[] = [];
 let waveBannerTimer: number | null = null;
-let lastSummaryText = '';
+let lastChallengeUrl = '';
+let lastRunScore = 0;
+let coopSyncTimer: number | null = null;
+
+const profile = loadProfile();
 
 function loadSettings(): GameSettings {
   try {
@@ -81,6 +97,8 @@ const game = new AetherGame(canvas, {
   onWaveBanner: showWaveBanner,
 });
 
+game.setProfile(profile);
+
 const savedSettings = loadSettings();
 game.settings = savedSettings;
 sound.setSoundEnabled(savedSettings.soundEnabled);
@@ -93,6 +111,76 @@ applyThemeToCSS(initialTheme);
 
 const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 game.setTouchDevice(isTouch);
+
+// ==================== CO-OP NETWORK ====================
+const coop = new CoopNetwork({
+  onStatus: (status, connected) => {
+    el('coop-status').textContent = status;
+    el('btn-coop-invite').classList.toggle('hidden', coop.role !== 'host');
+    el('btn-coop-start').classList.toggle('hidden', !(coop.role === 'host' && connected));
+  },
+  onPeerHello: (callsign, color) => {
+    game.setRemoteHello(callsign, color);
+  },
+  onStartMatch: () => {
+    coopScreen.classList.add('hidden');
+    titleScreen.classList.add('hidden');
+    startCoopMatch('guest');
+  },
+  onPacket: (data) => {
+    game.applyCoopPacket(data);
+  },
+  onDisconnect: () => {
+    stopCoopLoop();
+    game.setCoopRole('none');
+  },
+});
+
+function startCoopMatch(role: 'host' | 'guest'): void {
+  game.setCoopRole(role);
+  game.setProfile(profile);
+  game.startNewGame();
+  stopCoopLoop();
+  coopSyncTimer = window.setInterval(() => {
+    if (game.state === 'playing' && coop.isConnected) {
+      coop.send(game.getCoopSyncPacket());
+    }
+  }, 50);
+}
+
+function stopCoopLoop(): void {
+  if (coopSyncTimer !== null) {
+    clearInterval(coopSyncTimer);
+    coopSyncTimer = null;
+  }
+}
+
+// ==================== LOBBY & PROFILE UI ====================
+function refreshLobbyUI(): void {
+  const callsignInput = el<HTMLInputElement>('pilot-callsign');
+  callsignInput.value = profile.callsign;
+
+  const rank = getPilotRank(profile.totalScore);
+  const rankEl = el('pilot-rank');
+  rankEl.textContent = rank.title;
+  rankEl.style.color = rank.color;
+
+  el('pilot-shards').textContent = String(profile.shards);
+  el('hangar-shards').textContent = String(profile.shards);
+
+  const ship = SHIP_CLASSES.find((s) => s.id === profile.selectedShip) || SHIP_CLASSES[0];
+  el('selected-ship-badge').textContent = ship.name;
+
+  const hasClaimable =
+    !profile.dailyClaimedToday || profile.quests.some((q) => q.progress >= q.target && !q.claimed);
+  el('quest-dot').classList.toggle('hidden', !hasClaimable);
+}
+
+el<HTMLInputElement>('pilot-callsign').addEventListener('change', (e) => {
+  const val = (e.target as HTMLInputElement).value.trim().toUpperCase() || 'ПИЛОТ';
+  profile.callsign = val;
+  saveProfile(profile);
+});
 
 const themeGrid = el<HTMLDivElement>('theme-grid');
 function renderThemes(): void {
@@ -113,7 +201,166 @@ function renderThemes(): void {
   }
 }
 renderThemes();
+refreshLobbyUI();
 
+// ==================== HANGAR MODAL ====================
+function renderHangar(): void {
+  el('hangar-shards').textContent = String(profile.shards);
+  const shipsList = el('ships-list');
+  shipsList.innerHTML = '';
+
+  for (const ship of SHIP_CLASSES) {
+    const unlocked = profile.unlockedShips.includes(ship.id);
+    const selected = profile.selectedShip === ship.id;
+    const item = document.createElement('div');
+    item.className = `hangar-item ${selected ? 'selected' : ''}`;
+    item.innerHTML = `
+      <div class="hangar-info">
+        <h4>${ship.name} <span class="rank-pill">${ship.role}</span></h4>
+        <p>${ship.perkText}</p>
+      </div>
+    `;
+
+    const btn = document.createElement('button');
+    if (selected) {
+      btn.className = 'mini-btn secondary';
+      btn.textContent = 'ВЫБРАН';
+      btn.disabled = true;
+    } else if (unlocked) {
+      btn.className = 'mini-btn';
+      btn.textContent = 'ВЫБРАТЬ';
+      btn.onclick = () => {
+        profile.selectedShip = ship.id;
+        saveProfile(profile);
+        renderHangar();
+        refreshLobbyUI();
+      };
+    } else {
+      btn.className = 'mini-btn';
+      btn.textContent = `ОТКРЫТЬ ${ship.cost} ✦`;
+      btn.disabled = profile.shards < ship.cost;
+      btn.onclick = () => {
+        if (profile.shards >= ship.cost) {
+          profile.shards -= ship.cost;
+          profile.unlockedShips.push(ship.id);
+          profile.selectedShip = ship.id;
+          saveProfile(profile);
+          sound.playLevelUp();
+          renderHangar();
+          refreshLobbyUI();
+        }
+      };
+    }
+    item.appendChild(btn);
+    shipsList.appendChild(item);
+  }
+
+  const metaList = el('meta-list');
+  metaList.innerHTML = '';
+  for (const m of META_UPGRADES) {
+    const lvl = profile.metaLevels[m.id] || 0;
+    const isMax = lvl >= m.maxLevel;
+    const cost = getMetaCost(m, lvl);
+    const item = document.createElement('div');
+    item.className = 'hangar-item';
+    item.innerHTML = `
+      <div class="hangar-info">
+        <h4>${m.icon} ${m.name} (${lvl}/${m.maxLevel})</h4>
+        <p>${m.description}</p>
+      </div>
+    `;
+    const btn = document.createElement('button');
+    btn.className = 'mini-btn';
+    if (isMax) {
+      btn.textContent = 'МАКС.';
+      btn.disabled = true;
+    } else {
+      btn.textContent = `${cost} ✦`;
+      btn.disabled = profile.shards < cost;
+      btn.onclick = () => {
+        if (profile.shards >= cost) {
+          profile.shards -= cost;
+          profile.metaLevels[m.id] = lvl + 1;
+          saveProfile(profile);
+          sound.playLevelUp();
+          renderHangar();
+          refreshLobbyUI();
+        }
+      };
+    }
+    item.appendChild(btn);
+    metaList.appendChild(item);
+  }
+}
+
+// ==================== DAILY QUESTS MODAL ====================
+function renderQuests(): void {
+  const bonusBox = el('daily-bonus-box');
+  const reward = 35 + profile.streakDays * 15;
+  bonusBox.innerHTML = `
+    <div>
+      <strong style="font-family:'Exo 2',sans-serif;">ЕЖЕДНЕВНЫЙ БОНУС (ДЕНЬ ${profile.streakDays})</strong>
+      <div style="font-size:0.78rem;color:var(--text-dim);">Заходи каждый день за наградой!</div>
+    </div>
+  `;
+  const bonusBtn = document.createElement('button');
+  bonusBtn.className = 'mini-btn';
+  if (profile.dailyClaimedToday) {
+    bonusBtn.textContent = 'ПОЛУЧЕНО ✓';
+    bonusBtn.disabled = true;
+  } else {
+    bonusBtn.textContent = `ЗАБРАТЬ +${reward} ✦`;
+    bonusBtn.onclick = () => {
+      profile.dailyClaimedToday = true;
+      profile.shards += reward;
+      saveProfile(profile);
+      sound.playLevelUp();
+      renderQuests();
+      refreshLobbyUI();
+    };
+  }
+  bonusBox.appendChild(bonusBtn);
+
+  const qList = el('quests-list');
+  qList.innerHTML = '';
+  for (const q of profile.quests) {
+    const pct = Math.min(100, (q.progress / q.target) * 100);
+    const done = q.progress >= q.target;
+    const item = document.createElement('div');
+    item.className = 'quest-item';
+    item.innerHTML = `
+      <div style="flex:1;">
+        <div style="font-family:'Exo 2',sans-serif;font-weight:700;font-size:0.88rem;">${q.title}</div>
+        <div style="font-size:0.74rem;color:var(--text-dim);">${Math.min(q.progress, q.target)} / ${q.target}</div>
+        <div class="quest-prog-track"><div class="quest-prog-fill" style="width:${pct}%"></div></div>
+      </div>
+    `;
+    const btn = document.createElement('button');
+    btn.className = 'mini-btn';
+    if (q.claimed) {
+      btn.textContent = '✓';
+      btn.disabled = true;
+    } else if (done) {
+      btn.textContent = `+${q.reward} ✦`;
+      btn.onclick = () => {
+        q.claimed = true;
+        profile.shards += q.reward;
+        saveProfile(profile);
+        sound.playLevelUp();
+        renderQuests();
+        refreshLobbyUI();
+      };
+    } else {
+      btn.className = 'mini-btn secondary';
+      btn.textContent = `${q.reward} ✦`;
+      btn.disabled = true;
+    }
+    item.appendChild(btn);
+    qList.appendChild(item);
+  }
+}
+
+// ==================== SETTINGS & HUD ====================
 function renderSettingsInto(container: HTMLElement): void {
   const items: Array<{ key: keyof GameSettings; label: string }> = [
     { key: 'autoFire', label: 'Авто-огонь плазма-пушек' },
@@ -247,8 +494,23 @@ function handleGameOver(summary: {
   wave: number;
   kills: number;
   maxCombo: number;
+  shards: number;
   upgrades: Record<string, number>;
 }): void {
+  stopCoopLoop();
+  profile.shards += summary.shards;
+  profile.totalKills += summary.kills;
+  profile.totalScore += summary.score;
+  profile.totalRuns += 1;
+
+  for (const q of profile.quests) {
+    if (q.metric === 'kills') q.progress += summary.kills;
+    if (q.metric === 'wave') q.progress = Math.max(q.progress, summary.wave);
+    if (q.metric === 'combo') q.progress = Math.max(q.progress, summary.maxCombo);
+  }
+  saveProfile(profile);
+  refreshLobbyUI();
+
   const isNewRecord = saveScore({
     score: summary.score,
     wave: summary.wave,
@@ -258,7 +520,12 @@ function handleGameOver(summary: {
     date: new Date().toLocaleDateString('ru-RU'),
   });
 
+  lastRunScore = summary.score;
+  const baseUrl = `${window.location.origin}${window.location.pathname}`;
+  lastChallengeUrl = `${baseUrl}?challenge=${summary.score}&by=${encodeURIComponent(profile.callsign)}`;
+
   el('new-record-badge').classList.toggle('hidden', !isNewRecord);
+  el('go-shards').textContent = `+${summary.shards} ✦`;
   el('go-score').textContent = summary.score.toLocaleString('ru-RU');
   el('go-wave').textContent = String(summary.wave);
   el('go-kills').textContent = String(summary.kills);
@@ -272,7 +539,6 @@ function handleGameOver(summary: {
     })
     .join('');
 
-  lastSummaryText = `🚀 AETHER RIFT — Счёт: ${summary.score.toLocaleString('ru-RU')} | Волна ${summary.wave} | Сбито: ${summary.kills} | Макс. комбо: ${summary.maxCombo}x (${game.theme.name})`;
   gameoverScreen.classList.remove('hidden');
 }
 
@@ -294,11 +560,71 @@ function renderScoresModal(): void {
     .join('');
 }
 
-// Кнопки интерфейса
+async function shareOrCopy(title: string, text: string, url: string, btn: HTMLElement, resetText: string): Promise<void> {
+  if (navigator.share) {
+    try {
+      await navigator.share({ title, text, url });
+      return;
+    } catch {
+      // fallback to clipboard
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(`${text} ${url}`);
+    btn.textContent = 'ССЫЛКА СКОПИРОВАНА!';
+    setTimeout(() => (btn.textContent = resetText), 1800);
+  } catch {
+    // ignore
+  }
+}
+
+// ==================== BUTTON BINDINGS ====================
 el('btn-start').onclick = () => {
   sound.init();
+  game.setCoopRole('none');
+  game.setProfile(profile);
   titleScreen.classList.add('hidden');
   game.startNewGame();
+};
+
+el('btn-hangar').onclick = () => {
+  renderHangar();
+  hangarScreen.classList.remove('hidden');
+};
+el('btn-close-hangar').onclick = () => hangarScreen.classList.add('hidden');
+
+el('btn-quests').onclick = () => {
+  renderQuests();
+  questsScreen.classList.remove('hidden');
+};
+el('btn-close-quests').onclick = () => questsScreen.classList.add('hidden');
+
+el('btn-coop').onclick = () => coopScreen.classList.remove('hidden');
+el('btn-close-coop').onclick = () => coopScreen.classList.add('hidden');
+
+el('btn-coop-create').onclick = () => {
+  coop.createRoom(profile.callsign, game.theme.primary);
+};
+el('btn-coop-invite').onclick = () => {
+  const baseUrl = `${window.location.origin}${window.location.pathname}`;
+  const url = `${baseUrl}?room=${coop.roomCode}`;
+  void shareOrCopy(
+    'AETHER RIFT — Кооп Онлайн',
+    `Залетай ко мне в космический рогалик AETHER RIFT! Комната ${coop.roomCode}:`,
+    url,
+    el('btn-coop-invite'),
+    '📤 ПРИГЛАСИТЬ ДРУГА (ССЫЛКА)'
+  );
+};
+el('btn-coop-start').onclick = () => {
+  coop.send({ type: 'start' });
+  coopScreen.classList.add('hidden');
+  titleScreen.classList.add('hidden');
+  startCoopMatch('host');
+};
+el('btn-coop-join').onclick = () => {
+  const code = el<HTMLInputElement>('coop-code-input').value;
+  coop.joinRoom(code, profile.callsign, game.theme.primary);
 };
 
 el('btn-controls').onclick = () => {
@@ -319,6 +645,7 @@ el('btn-pause').onclick = () => {
 };
 el('btn-resume').onclick = () => game.togglePause();
 el('btn-quit').onclick = () => {
+  stopCoopLoop();
   pauseScreen.classList.add('hidden');
   game.returnToTitle();
   titleScreen.classList.remove('hidden');
@@ -340,6 +667,7 @@ el('btn-nova').onclick = () => game.triggerNova();
 
 el('btn-retry').onclick = () => {
   gameoverScreen.classList.add('hidden');
+  game.setProfile(profile);
   game.startNewGame();
 };
 el('btn-go-menu').onclick = () => {
@@ -347,17 +675,34 @@ el('btn-go-menu').onclick = () => {
   game.returnToTitle();
   titleScreen.classList.remove('hidden');
 };
-el('btn-copy-score').onclick = async () => {
-  try {
-    await navigator.clipboard.writeText(lastSummaryText);
-    el('btn-copy-score').textContent = 'СКОПИРОВАНО!';
-    setTimeout(() => (el('btn-copy-score').textContent = 'СКОПИРОВАТЬ СЧЁТ'), 1500);
-  } catch {
-    // ignore
-  }
+el('btn-challenge-friend').onclick = () => {
+  void shareOrCopy(
+    'Вызов в AETHER RIFT!',
+    `Я набрал ${lastRunScore.toLocaleString('ru-RU')} очков в AETHER RIFT! Сможешь побить мой рекорд?`,
+    lastChallengeUrl,
+    el('btn-challenge-friend'),
+    '⚔️ БРОСИТЬ ВЫЗОВ ДРУГУ'
+  );
 };
 
-// Клавиатура и мышь
+// ==================== URL PARAMS: CHALLENGE & CO-OP ROOM ====================
+const params = new URLSearchParams(window.location.search);
+const challengeScore = params.get('challenge');
+const challengeBy = params.get('by');
+if (challengeScore && challengeBy) {
+  const banner = el('challenge-banner');
+  banner.innerHTML = `⚔️ <b>${challengeBy}</b> бросает тебе вызов! Цель: <b>${Number(challengeScore).toLocaleString('ru-RU')}</b> очков`;
+  banner.classList.remove('hidden');
+}
+
+const roomParam = params.get('room');
+if (roomParam) {
+  el<HTMLInputElement>('coop-code-input').value = roomParam;
+  coopScreen.classList.remove('hidden');
+  coop.joinRoom(roomParam, profile.callsign, game.theme.primary);
+}
+
+// ==================== INPUT LISTENERS ====================
 window.addEventListener('resize', () => game.resize());
 
 window.addEventListener('keydown', (e) => {
@@ -385,7 +730,6 @@ window.addEventListener('mouseup', (e) => {
 });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-// Плавающие сенсорные стики для iPhone / Android
 if (isTouch) {
   const moveBase = el<HTMLDivElement>('stick-move-base');
   const moveKnob = el<HTMLDivElement>('stick-move-knob');

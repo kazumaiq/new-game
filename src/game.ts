@@ -1,4 +1,6 @@
 import { sound } from './audio';
+import { NetRole, RemotePlayerState } from './network';
+import { PlayerProfile, SHIP_CLASSES } from './progression';
 import { THEMES } from './themes';
 import { UPGRADES } from './upgrades';
 import {
@@ -49,6 +51,7 @@ export interface GameCallbacks {
     wave: number;
     kills: number;
     maxCombo: number;
+    shards: number;
     upgrades: Record<string, number>;
   }) => void;
   onWaveBanner: (title: string, subtitle: string) => void;
@@ -141,6 +144,21 @@ export class AetherGame {
   private lastTs = 0;
   private hudSyncTimer = 0;
 
+  private profile: PlayerProfile | null = null;
+  private greedMult = 1;
+  private coopRole: NetRole = 'none';
+  private remotePlayer: RemotePlayerState = {
+    connected: false,
+    callsign: 'НАПАРНИК',
+    color: '#ff2a85',
+    x: 1200,
+    y: 900,
+    angle: 0,
+    hp: 100,
+    maxHp: 100,
+    down: false,
+  };
+
   constructor(canvas: HTMLCanvasElement, callbacks: GameCallbacks) {
     this.canvas = canvas;
     const ctx = canvas.getContext('2d', { alpha: false });
@@ -173,6 +191,119 @@ export class AetherGame {
 
   public setTheme(theme: ThemePalette): void {
     this.theme = theme;
+  }
+
+  public setProfile(profile: PlayerProfile): void {
+    this.profile = profile;
+  }
+
+  public setCoopRole(role: NetRole): void {
+    this.coopRole = role;
+    this.remotePlayer.connected = role !== 'none';
+  }
+
+  public setRemoteHello(callsign: string, color: string): void {
+    this.remotePlayer.connected = true;
+    this.remotePlayer.callsign = callsign;
+    this.remotePlayer.color = color;
+  }
+
+  public getCoopSyncPacket(): Record<string, unknown> {
+    if (this.coopRole === 'host') {
+      return {
+        type: 'state',
+        x: Math.round(this.player.x),
+        y: Math.round(this.player.y),
+        a: Number(this.player.angle.toFixed(2)),
+        hp: Math.ceil(this.player.hp),
+        mhp: this.player.maxHp,
+        down: this.player.hp <= 0,
+        wave: this.wave,
+        score: this.score,
+        enemies: this.enemies.slice(0, 45).map((e) => [
+          e.id,
+          e.kind,
+          Math.round(e.x),
+          Math.round(e.y),
+          Math.round(e.hp),
+          Math.round(e.maxHp),
+        ]),
+      };
+    }
+    return {
+      type: 'input',
+      x: Math.round(this.player.x),
+      y: Math.round(this.player.y),
+      a: Number(this.player.angle.toFixed(2)),
+      hp: Math.ceil(this.player.hp),
+      mhp: this.player.maxHp,
+      down: this.player.hp <= 0,
+    };
+  }
+
+  public applyCoopPacket(data: Record<string, unknown>): void {
+    if (data.type === 'state' || data.type === 'input') {
+      this.remotePlayer.connected = true;
+      this.remotePlayer.x = Number(data.x ?? this.remotePlayer.x);
+      this.remotePlayer.y = Number(data.y ?? this.remotePlayer.y);
+      this.remotePlayer.angle = Number(data.a ?? this.remotePlayer.angle);
+      this.remotePlayer.hp = Number(data.hp ?? this.remotePlayer.hp);
+      this.remotePlayer.maxHp = Number(data.mhp ?? this.remotePlayer.maxHp);
+      this.remotePlayer.down = Boolean(data.down);
+    }
+    if (data.type === 'state' && this.coopRole === 'guest') {
+      this.wave = Number(data.wave ?? this.wave);
+      this.score = Math.max(this.score, Number(data.score ?? this.score));
+      const rawEnemies = data.enemies as Array<[number, EnemyKind, number, number, number, number]> | undefined;
+      if (Array.isArray(rawEnemies)) {
+        const next: Enemy[] = [];
+        for (const [id, kind, x, y, hp, maxHp] of rawEnemies) {
+          const existing = this.enemies.find((e) => e.id === id);
+          const color =
+            kind === 'splitter'
+              ? '#ff2a85'
+              : kind === 'mini'
+              ? '#ff70a6'
+              : kind === 'sniper'
+              ? '#ffb703'
+              : kind === 'warden'
+              ? '#b5179e'
+              : kind === 'boss'
+              ? '#ff0054'
+              : '#00f5ff';
+          const radius =
+            kind === 'boss' ? 54 : kind === 'warden' ? 24 : kind === 'splitter' ? 22 : kind === 'sniper' ? 17 : kind === 'mini' ? 10 : 15;
+          next.push({
+            id,
+            kind,
+            x,
+            y,
+            vx: 0,
+            vy: 0,
+            angle: existing ? existing.angle : 0,
+            radius,
+            hp,
+            maxHp,
+            speed: 140,
+            color,
+            xpValue: 12,
+            scoreValue: 100,
+            shootTimer: 2,
+            aimTimer: 0,
+            aimAngle: 0,
+            hitFlash: existing ? existing.hitFlash : 0,
+            spin: existing ? existing.spin : 2,
+          });
+        }
+        this.enemies = next;
+      }
+    }
+  }
+
+  private vibrate(ms: number): void {
+    if (this.isTouchDevice && typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(ms);
+    }
   }
 
   public setTouchDevice(enabled: boolean): void {
@@ -213,6 +344,11 @@ export class AetherGame {
     this.resetRun(false);
     this.state = 'playing';
     this.callbacks.onWaveBanner('ВОЛНА 01', 'ПРОРЫВ ПЕРИМЕТРА СЕКТОРА');
+    if (this.player.xp >= this.player.xpToNext) {
+      this.player.xp = 0;
+      this.player.level++;
+      this.triggerLevelUp();
+    }
     this.pushHud();
   }
 
@@ -299,6 +435,7 @@ export class AetherGame {
     this.player.dashTimer = this.stats.dashCooldown;
     this.player.invulnTimer = Math.max(this.player.invulnTimer, 0.26);
     sound.playDash();
+    this.vibrate(20);
 
     this.spawnShockwave(this.player.x, this.player.y, 95, this.theme.primary, 3);
     if (this.stats.phantomDash) {
@@ -313,6 +450,7 @@ export class AetherGame {
     this.player.novaCharge = 0;
     this.player.invulnTimer = Math.max(this.player.invulnTimer, 0.9);
     sound.playNova();
+    this.vibrate(60);
     this.addShake(18);
     this.hitStop = 0.06;
 
@@ -480,6 +618,32 @@ export class AetherGame {
     this.maxCombo = 0;
     this.comboTimer = 0;
     this.bossActive = false;
+    this.greedMult = 1;
+
+    if (!attractMode && this.profile) {
+      const m = this.profile.metaLevels;
+      this.stats.damage *= 1 + (m.meta_damage || 0) * 0.08;
+      this.stats.moveSpeed *= 1 + (m.meta_speed || 0) * 0.06;
+      const bonusHp = (m.meta_hp || 0) * 15;
+      this.player.maxHp += bonusHp;
+      this.player.hp += bonusHp;
+      this.greedMult = 1 + (m.meta_greed || 0) * 0.15;
+
+      const ship = SHIP_CLASSES.find((s) => s.id === this.profile?.selectedShip) || SHIP_CLASSES[0];
+      this.player.maxHp = Math.max(50, this.player.maxHp + ship.hpBonus);
+      this.player.hp = this.player.maxHp;
+      this.stats.moveSpeed *= ship.speedMult;
+      this.stats.critChance += ship.critBonus;
+      this.stats.dashCooldown *= ship.dashMult;
+
+      for (const upgId of ship.startUpgrades) {
+        this.applyUpgrade(upgId);
+      }
+      if ((m.meta_startlvl || 0) > 0) {
+        this.player.xp = this.player.xpToNext;
+      }
+    }
+
     this.camX = this.player.x;
     this.camY = this.player.y;
 
@@ -840,6 +1004,7 @@ export class AetherGame {
   }
 
   private updateSpawning(dt: number, isTitle: boolean): void {
+    if (this.coopRole === 'guest') return;
     if (this.waveSpawnRemaining > 0) {
       this.spawnTimer -= dt;
       if (this.spawnTimer <= 0) {
@@ -1245,6 +1410,7 @@ export class AetherGame {
       p.shieldTimer = this.stats.aegisShieldCooldown;
       p.invulnTimer = 0.7;
       sound.playDash();
+    this.vibrate(20);
       this.spawnShockwave(p.x, p.y, 170, '#70e0ff', 4);
       this.addFloatingText(p.x, p.y - 30, 'ЩИТ ОТРАЗИЛ УДАР!', '#70e0ff', 1.1);
       return;
@@ -1254,6 +1420,7 @@ export class AetherGame {
     p.invulnTimer = 0.85;
     this.combo = 0;
     sound.playDamage();
+    this.vibrate(45);
     this.addShake(12);
     this.spawnShockwave(p.x, p.y, 130, '#ff2a54', 4);
     this.spawnParticles(p.x, p.y, 16, '#ff2a54', 240);
@@ -1262,11 +1429,14 @@ export class AetherGame {
       p.hp = 0;
       this.state = 'gameover';
       this.pushHud();
+      const rawShards = Math.max(5, Math.floor(this.kills * 0.45 + this.wave * 6));
+      const shards = Math.round(rawShards * this.greedMult);
       this.callbacks.onGameOver({
         score: this.score,
         wave: this.wave,
         kills: this.kills,
         maxCombo: this.maxCombo,
+        shards,
         upgrades: { ...this.acquiredUpgrades },
       });
     }
@@ -1617,6 +1787,9 @@ export class AetherGame {
     }
 
     this.renderPlayer(ctx);
+    if (this.coopRole !== 'none' && this.remotePlayer.connected) {
+      this.renderRemotePlayer(ctx);
+    }
 
     ctx.restore(); // end lighter
 
@@ -1811,6 +1984,32 @@ export class AetherGame {
     ctx.restore();
     ctx.globalAlpha = 1;
     ctx.shadowBlur = 0;
+  }
+
+  private renderRemotePlayer(ctx: CanvasRenderingContext2D): void {
+    const r = this.remotePlayer;
+    ctx.save();
+    ctx.translate(r.x, r.y);
+    ctx.save();
+    ctx.rotate(r.angle);
+    ctx.strokeStyle = r.down ? '#ff2a54' : r.color;
+    ctx.fillStyle = this.hexToRgba(r.color, r.down ? 0.08 : 0.22);
+    ctx.lineWidth = 2.4;
+    this.traceShipPath(ctx, 16);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+
+    // Callsign nameplate & HP bar
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '700 11px "Exo 2", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(r.callsign, 0, -28);
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(-18, -22, 36, 4);
+    ctx.fillStyle = r.color;
+    ctx.fillRect(-18, -22, 36 * Math.max(0, r.hp / Math.max(1, r.maxHp)), 4);
+    ctx.restore();
   }
 
   private traceShipPath(ctx: CanvasRenderingContext2D, r: number): void {
