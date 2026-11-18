@@ -1538,3 +1538,52 @@ body {
   line-height: 1.4;
   color: var(--text-dim);
 }
+
+/* SCI-FI SEGMENTED NEON HP BAR */
+.vital-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2px;
+}
+
+.hp-label {
+  color: var(--primary);
+  letter-spacing: 0.14em;
+}
+
+.hp-num {
+  font-family: 'Exo 2', sans-serif;
+  font-weight: 900;
+  font-size: 0.82rem;
+  color: #ffffff;
+  text-shadow: 0 0 10px color-mix(in srgb, var(--primary) 65%, transparent);
+}
+
+.hp-track {
+  height: 11px;
+  border-radius: 3px;
+  clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
+  position: relative;
+}
+
+.hp-fill {
+  border-radius: 0;
+  background: linear-gradient(90deg, var(--accent), var(--primary));
+  box-shadow: 0 0 14px color-mix(in srgb, var(--primary) 70%, transparent);
+}
+
+.hp-segments {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent,
+    transparent 18px,
+    rgba(3, 6, 18, 0.55) 18px,
+    rgba(3, 6, 18, 0.55) 20px
+  );
+}

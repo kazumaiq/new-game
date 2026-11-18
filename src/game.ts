@@ -712,8 +712,9 @@ export class AetherGame {
   private startWave(waveNum: number, attractMode = false): void {
     this.wave = waveNum;
     this.bossActive = waveNum % 5 === 0;
-    this.waveSpawnRemaining = this.bossActive ? 6 + waveNum : 8 + waveNum * 4;
-    this.spawnTimer = 0.4;
+    this.waveSpawnRemaining =
+      this.bossActive ? 6 + waveNum : waveNum === 1 ? 6 : waveNum === 2 ? 10 : 8 + waveNum * 4;
+    this.spawnTimer = waveNum === 1 ? 0.8 : 0.4;
 
     if (this.bossActive && !attractMode) {
       sound.playBossWarning();
@@ -748,10 +749,11 @@ export class AetherGame {
       else kind = 'swarmer';
     }
 
-    const hpScale = 1 + (this.wave - 1) * 0.22;
+    const hpScale = this.wave === 1 ? 0.72 : this.wave === 2 ? 0.85 : 1 + (this.wave - 3) * 0.22;
+    const speedScale = this.wave === 1 ? 0.78 : this.wave === 2 ? 0.88 : 1;
     let radius = 15;
     let hp = 32 * hpScale;
-    let speed = 175 + Math.min(110, this.wave * 6);
+    let speed = (175 + Math.min(110, this.wave * 6)) * speedScale;
     let color = '#00f5ff';
     let xpValue = 12;
     let scoreValue = 100;
@@ -1164,7 +1166,7 @@ export class AetherGame {
       if (this.spawnTimer <= 0) {
         this.spawnEnemy();
         this.waveSpawnRemaining--;
-        this.spawnTimer = Math.max(0.28, 1.15 - this.wave * 0.06);
+        this.spawnTimer = Math.max(0.28, (this.wave === 1 ? 1.45 : this.wave === 2 ? 1.25 : 1.15) - this.wave * 0.05);
       }
     } else if (this.enemies.length === 0) {
       this.waveClearDelay += dt;
@@ -1331,7 +1333,8 @@ export class AetherGame {
       e.y = Math.max(e.radius + 16, Math.min(this.arenaH - e.radius - 16, e.y + e.vy * dt));
 
       if (!isTitle && p.invulnTimer <= 0 && Math.hypot(e.x - p.x, e.y - p.y) < e.radius + p.radius - 3) {
-        this.damagePlayer(e.kind === 'boss' ? 24 : 16);
+        const contactDmg = e.kind === 'boss' ? 24 : this.wave <= 2 ? 11 : 16;
+        this.damagePlayer(contactDmg);
       }
     }
   }
@@ -2226,15 +2229,6 @@ export class AetherGame {
     ctx.restore();
     ctx.globalAlpha = 1;
     ctx.shadowBlur = 0;
-
-    if (this.state === 'playing' && p.hp < p.maxHp) {
-      const bw = 38;
-      const ratio = Math.max(0, p.hp / p.maxHp);
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
-      ctx.fillRect(p.x - bw / 2, p.y + p.radius + 10, bw, 4);
-      ctx.fillStyle = ratio > 0.35 ? '#00ff87' : '#ff2a54';
-      ctx.fillRect(p.x - bw / 2, p.y + p.radius + 10, bw * ratio, 4);
-    }
   }
 
   private renderRemotePlayer(ctx: CanvasRenderingContext2D): void {

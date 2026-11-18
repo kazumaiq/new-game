@@ -38,14 +38,15 @@
     <div id="hud" class="hud hidden">
       <div class="hud-top">
         <div class="hud-panel hud-vitals">
-          <div class="vital-row">
-            <span class="label hp-label">❤️ ХП</span>
-            <div class="bar-track hp-track">
-              <div id="hp-bar" class="bar-fill hp-fill" style="width: 100%"></div>
-              <span id="hp-text" class="hp-overlay-text">100 / 100</span>
-            </div>
+          <div class="vital-header">
+            <span class="label hp-label">КОРПУС</span>
+            <span id="hp-text" class="hp-num">100 / 100</span>
           </div>
-          <div class="vital-row">
+          <div class="bar-track hp-track">
+            <div id="hp-bar" class="bar-fill hp-fill" style="width: 100%"></div>
+            <div class="hp-segments"></div>
+          </div>
+          <div class="vital-row" style="margin-top: 2px">
             <span id="lvl-label" class="label">УР. 1</span>
             <div class="bar-track xp-track">
               <div id="xp-bar" class="bar-fill xp-fill" style="width: 0%"></div>
