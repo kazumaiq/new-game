@@ -1499,3 +1499,42 @@ body {
     font-size: 0.64rem;
   }
 }
+
+/* ONBOARDING TUTORIAL */
+.tutorial-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+  margin-top: 8px;
+}
+
+.tut-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.tut-ico {
+  font-size: 1.5rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.tut-step strong {
+  display: block;
+  font-family: 'Exo 2', sans-serif;
+  font-size: 0.9rem;
+  color: var(--primary);
+  margin-bottom: 3px;
+}
+
+.tut-step p {
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--text-dim);
+}

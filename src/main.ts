@@ -1,7 +1,7 @@
 import './style.css';
 import { sound } from './audio';
 import { AetherGame, HudSnapshot } from './game';
-import { fetchGlobalLeaderboard, submitGlobalScore } from './leaderboard';
+import { fetchCloudProfile, fetchGlobalLeaderboard, saveCloudProfile, submitGlobalScore } from './leaderboard';
 import { CoopNetwork } from './network';
 import {
   getMetaCost,
@@ -44,7 +44,20 @@ let selectedSoloMode: GameMode = 'classic';
 let selectedOnlineMode: 'coop' | 'pvp' = 'coop';
 let activeLbTab: 'daily' | 'all' | 'local' = 'daily';
 
-const profile = loadProfile();
+const TUTORIAL_KEY = 'aether_rift_tut_v1';
+const tutorialScreen = el<HTMLDivElement>('tutorial-screen');
+
+let profile = loadProfile();
+
+// Попытка синхронизации профиля из облака Supabase при старте
+void fetchCloudProfile(profile.callsign).then((cloud) => {
+  if (cloud && cloud.totalScore >= profile.totalScore) {
+    profile = { ...profile, ...cloud };
+    saveProfile(profile);
+    game.setProfile(profile);
+    refreshLobbyUI();
+  }
+});
 
 // Telegram Mini App integration
 const tgApp = (window as unknown as {
@@ -216,10 +229,17 @@ function refreshLobbyUI(): void {
   el('quest-dot').classList.toggle('hidden', !hasClaimable);
 }
 
-el<HTMLInputElement>('pilot-callsign').addEventListener('change', (e) => {
+el<HTMLInputElement>('pilot-callsign').addEventListener('change', async (e) => {
   const val = (e.target as HTMLInputElement).value.trim().toUpperCase() || 'ПИЛОТ';
   profile.callsign = val;
+  const cloud = await fetchCloudProfile(val);
+  if (cloud && cloud.totalScore > profile.totalScore) {
+    profile = { ...profile, ...cloud };
+    game.setProfile(profile);
+    refreshLobbyUI();
+  }
   saveProfile(profile);
+  void saveCloudProfile(profile);
 });
 
 const themeGrid = el<HTMLDivElement>('theme-grid');
@@ -560,6 +580,7 @@ function handleGameOver(summary: {
     if (q.metric === 'combo') q.progress = Math.max(q.progress, summary.maxCombo);
   }
   saveProfile(profile);
+  void saveCloudProfile(profile);
   refreshLobbyUI();
 
   const shipDef = SHIP_CLASSES.find((s) => s.id === profile.selectedShip) || SHIP_CLASSES[0];
@@ -680,13 +701,27 @@ document.querySelectorAll('#lb-tabs .mode-tab').forEach((btn) => {
   });
 });
 
-el('btn-start').onclick = () => {
+function launchSoloMission(): void {
   sound.init();
   game.setCoopRole('none');
   game.setMode(selectedSoloMode);
   game.setProfile(profile);
   titleScreen.classList.add('hidden');
   game.startNewGame();
+}
+
+el('btn-start').onclick = () => {
+  if (!localStorage.getItem(TUTORIAL_KEY)) {
+    tutorialScreen.classList.remove('hidden');
+    return;
+  }
+  launchSoloMission();
+};
+
+el('btn-tutorial-go').onclick = () => {
+  localStorage.setItem(TUTORIAL_KEY, '1');
+  tutorialScreen.classList.add('hidden');
+  launchSoloMission();
 };
 
 el('btn-hangar').onclick = () => {

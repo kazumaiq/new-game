@@ -1,3 +1,5 @@
+import { PlayerProfile } from './progression';
+
 export interface GlobalScoreRow {
   callsign: string;
   score: number;
@@ -7,9 +9,8 @@ export interface GlobalScoreRow {
   isSelf?: boolean;
 }
 
-// Опционально: вставьте свои ключи Supabase для живой глобальной таблицы
-const SUPABASE_URL = '';
-const SUPABASE_ANON_KEY = '';
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
 const DAILY_BOARD_KEY = 'aether_rift_daily_board_v1';
 
@@ -36,7 +37,7 @@ function getDailyRivals(): GlobalScoreRow[] {
     score: Math.floor(4500 + rand() * 16000 + (8 - i) * 900),
     wave: Math.floor(4 + rand() * 7),
     mode: 'daily',
-    ship: ['ПЕРЕХВАТЧИК', 'ШТУРМОВИК', 'ФАНТОМ', 'ТЕСЛА-ДРОН'][Math.floor(rand() * 4)],
+    ship: ['ИСТРЕБИТЕЛЬ', 'ТАНК', 'НИНДЗЯ', 'ЭЛЕКТРО'][Math.floor(rand() * 4)],
   }));
 }
 
@@ -105,4 +106,46 @@ export async function fetchGlobalLeaderboard(modeFilter: 'all' | 'daily', myCall
   const combined = [...local, ...rivals].filter((r) => modeFilter === 'all' || r.mode === 'daily');
   combined.sort((a, b) => b.score - a.score);
   return combined.slice(0, 15);
+}
+
+export async function saveCloudProfile(profile: PlayerProfile): Promise<void> {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/profiles`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Prefer: 'resolution=merge-duplicates',
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({
+        callsign: profile.callsign,
+        data: profile,
+        updated_at: new Date().toISOString(),
+      }),
+    });
+  } catch {
+    // ignore offline errors
+  }
+}
+
+export async function fetchCloudProfile(callsign: string): Promise<PlayerProfile | null> {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !callsign) return null;
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/profiles?callsign=eq.${encodeURIComponent(callsign)}&select=data&limit=1`,
+      {
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+      }
+    );
+    if (!res.ok) return null;
+    const rows = (await res.json()) as Array<{ data: PlayerProfile }>;
+    return rows[0]?.data || null;
+  } catch {
+    return null;
+  }
 }
