@@ -2072,10 +2072,10 @@ export class AetherGame {
   }
 
   private renderMinimap(ctx: CanvasRenderingContext2D): void {
-    const mw = 96;
-    const mh = 72;
-    const mx = 22;
-    const my = this.height - mh - (this.isTouchDevice ? 195 : 24);
+    const mw = this.isTouchDevice ? 76 : 96;
+    const mh = this.isTouchDevice ? 57 : 72;
+    const mx = 14;
+    const my = this.height - mh - 16;
 
     ctx.save();
     ctx.fillStyle = 'rgba(7, 11, 24, 0.65)';
@@ -2226,6 +2226,15 @@ export class AetherGame {
     ctx.restore();
     ctx.globalAlpha = 1;
     ctx.shadowBlur = 0;
+
+    if (this.state === 'playing' && p.hp < p.maxHp) {
+      const bw = 38;
+      const ratio = Math.max(0, p.hp / p.maxHp);
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+      ctx.fillRect(p.x - bw / 2, p.y + p.radius + 10, bw, 4);
+      ctx.fillStyle = ratio > 0.35 ? '#00ff87' : '#ff2a54';
+      ctx.fillRect(p.x - bw / 2, p.y + p.radius + 10, bw * ratio, 4);
+    }
   }
 
   private renderRemotePlayer(ctx: CanvasRenderingContext2D): void {

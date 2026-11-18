@@ -1445,3 +1445,57 @@ body {
     font-size: 0.66rem;
   }
 }
+
+/* CRYSTAL-CLEAR HP BAR & CLEAN 2-ROW MOBILE HUD */
+.hp-track {
+  height: 16px;
+  position: relative;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.hp-overlay-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Exo 2', sans-serif;
+  font-weight: 900;
+  font-size: 0.68rem;
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+
+@media (max-width: 760px) {
+  .hud-top {
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .hud-center {
+    order: 1;
+    align-items: flex-start;
+  }
+  .hud-score-panel {
+    order: 1;
+  }
+  .hud-vitals {
+    order: 2;
+    flex: 1 0 100%;
+    width: 100%;
+    padding: 8px 12px;
+  }
+  .ability-pill {
+    min-width: 96px;
+    padding: 9px 12px;
+    text-align: center;
+  }
+  .touch-hint-bar {
+    top: auto;
+    bottom: 72px;
+    font-size: 0.64rem;
+  }
+}
