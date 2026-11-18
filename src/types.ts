@@ -2,7 +2,7 @@ export type GameState = 'title' | 'playing' | 'paused' | 'levelup' | 'gameover';
 
 export type GameMode = 'classic' | 'blitz' | 'daily' | 'coop' | 'pvp';
 
-export type EnemyKind = 'swarmer' | 'splitter' | 'mini' | 'sniper' | 'warden' | 'boss';
+export type EnemyKind = 'swarmer' | 'bomber' | 'splitter' | 'mini' | 'sniper' | 'shielder' | 'spawner' | 'warden' | 'boss';
 
 export type PowerUpKind = 'heal' | 'magnet' | 'overclock';
 

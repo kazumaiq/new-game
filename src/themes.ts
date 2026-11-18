@@ -3,8 +3,8 @@ import { ThemePalette } from './types';
 export const THEMES: ThemePalette[] = [
   {
     id: 'cyber-cyan',
-    name: 'КИБЕР-ЦИАН',
-    subtitle: 'Тактический Ионный Перехватчик',
+    name: 'НЕОН',
+    subtitle: 'Голубой неон',
     primary: '#00f5ff',
     secondary: '#7b2cbf',
     accent: '#ff2a85',
@@ -14,8 +14,8 @@ export const THEMES: ThemePalette[] = [
   },
   {
     id: 'solar-flare',
-    name: 'СОЛНЕЧНЫЙ ШТОРМ',
-    subtitle: 'Авангард Короны Гелиоса',
+    name: 'ОГОНЬ',
+    subtitle: 'Золотое пламя',
     primary: '#ffb703',
     secondary: '#fb5607',
     accent: '#00f5d4',
@@ -25,8 +25,8 @@ export const THEMES: ThemePalette[] = [
   },
   {
     id: 'crimson-oni',
-    name: 'АЛЫЙ ОНИ',
-    subtitle: 'Фантомный Кровавый Клинок',
+    name: 'КРОВЬ',
+    subtitle: 'Алый лазер',
     primary: '#ff2a54',
     secondary: '#9d4edd',
     accent: '#00bbf9',
@@ -36,8 +36,8 @@ export const THEMES: ThemePalette[] = [
   },
   {
     id: 'abyssal-emerald',
-    name: 'БИО-МАТРИЦА',
-    subtitle: 'Квантовый Токсичный Дрифтер',
+    name: 'ТОКСИК',
+    subtitle: 'Ядовитый зелёный',
     primary: '#00ff87',
     secondary: '#00b4d8',
     accent: '#f72585',

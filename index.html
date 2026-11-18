@@ -102,57 +102,63 @@
     </div>
 
     <!-- ГЛАВНЫЙ ЭКРАН -->
-    <div id="title-screen" class="overlay">
-      <div class="title-card glass-panel">
-        <div class="pilot-header">
+    <div id="title-screen" class="overlay lobby-overlay">
+      <div class="lobby-shell">
+        <!-- Верхняя панель -->
+        <div class="pilot-header glass-bar">
           <div class="pilot-identity">
-            <input id="pilot-callsign" class="callsign-input" maxlength="14" value="ПИЛОТ" title="Изменить позывной" />
+            <input id="pilot-callsign" class="callsign-input" maxlength="12" value="ПИЛОТ" title="Изменить позывной" />
             <span id="pilot-rank" class="rank-pill">РЕКРУТ</span>
           </div>
-          <div class="shards-pill" title="Эфирные Осколки">
-            <span>✦</span>
-            <strong id="pilot-shards">0</strong>
+          <div class="header-right">
+            <div class="shards-pill" title="Эфирные Осколки">
+              <span>✦</span>
+              <strong id="pilot-shards">0</strong>
+            </div>
+            <button id="btn-controls" class="icon-btn" title="Настройки">⚙️</button>
           </div>
         </div>
 
-        <div id="challenge-banner" class="challenge-banner hidden"></div>
+        <!-- Центр: Лого, Цель, Режим, Цвет, Старт -->
+        <div class="lobby-hero">
+          <div id="challenge-banner" class="challenge-banner hidden"></div>
 
-        <h1 class="game-title">AETHER <span>RIFT</span></h1>
-        <p class="game-tagline">
-          Космический экшн-рогалик. Прокачивай корабли в Ангаре, выполняй задания дня и зови друзей в онлайн-кооп!
-        </p>
+          <h1 class="game-title">AETHER <span>RIFT</span></h1>
+          <div class="goal-pill">🎯 ЦЕЛЬ: ПРОЙДИ 10 ВОЛН И УНИЧТОЖЬ БОССА</div>
 
-        <div class="theme-section">
-          <div class="section-label">РЕЖИМ ИГРЫ</div>
           <div id="mode-tabs" class="mode-tabs">
-            <button class="mode-tab active" data-mode="classic">∞ КЛАССИКА</button>
+            <button class="mode-tab active" data-mode="classic">∞ 10 ВОЛН</button>
             <button class="mode-tab" data-mode="blitz">⚡ БЛИЦ 3:00</button>
-            <button class="mode-tab" data-mode="daily">📅 ЗАБЕГ ДНЯ</button>
+            <button class="mode-tab" data-mode="daily">📅 ДЕНЬ</button>
           </div>
-        </div>
 
-        <div class="theme-section">
-          <div class="section-label">СПЕКТР КОРПУСА</div>
-          <div id="theme-grid" class="theme-grid"></div>
-        </div>
+          <div id="theme-grid" class="theme-dots"></div>
 
-        <div class="lobby-actions">
           <button id="btn-start" class="btn-primary btn-launch">
             <span>🚀 В БОЙ</span>
-            <span id="selected-ship-badge" class="ship-mini-badge">ПЕРЕХВАТЧИК</span>
+            <span id="selected-ship-badge" class="ship-mini-badge">ИСТРЕБИТЕЛЬ</span>
           </button>
+        </div>
 
-          <div class="lobby-grid">
-            <button id="btn-hangar" class="btn-secondary">🛠 АНГАР</button>
-            <button id="btn-quests" class="btn-secondary btn-notify-wrap">
-              🎯 ЗАДАНИЯ ДНЯ
-              <span id="quest-dot" class="notify-dot hidden"></span>
-            </button>
-            <button id="btn-coop" class="btn-secondary">👥 ОНЛАЙН КООП</button>
-            <button id="btn-scores" class="btn-secondary">🏆 РЕКОРДЫ</button>
-          </div>
-
-          <button id="btn-controls" class="btn-ghost">⚙️ Управление и графика</button>
+        <!-- Нижний док -->
+        <div class="lobby-dock glass-bar">
+          <button id="btn-hangar" class="dock-btn">
+            <span class="dock-ico">🛠</span>
+            <span>Ангар</span>
+          </button>
+          <button id="btn-quests" class="dock-btn btn-notify-wrap">
+            <span class="dock-ico">🎯</span>
+            <span>Задания</span>
+            <span id="quest-dot" class="notify-dot hidden"></span>
+          </button>
+          <button id="btn-coop" class="dock-btn">
+            <span class="dock-ico">👥</span>
+            <span>Онлайн</span>
+          </button>
+          <button id="btn-scores" class="dock-btn">
+            <span class="dock-ico">🏆</span>
+            <span>Топ</span>
+          </button>
         </div>
       </div>
     </div>
@@ -305,7 +311,7 @@
       <div id="stick-aim-base" class="stick-base stick-aim hidden">
         <div id="stick-aim-knob" class="stick-knob"></div>
       </div>
-      <div class="touch-hint-bar">Левый палец — полёт · Авто-прицел активен</div>
+      <div class="touch-hint-bar">Левый палец — полёт · Правый палец — прицел</div>
     </div>
 
     <script type="module" src="/src/main.ts"></script>

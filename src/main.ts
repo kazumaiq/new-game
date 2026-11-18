@@ -227,11 +227,9 @@ function renderThemes(): void {
   themeGrid.innerHTML = '';
   for (const t of THEMES) {
     const btn = document.createElement('button');
-    btn.className = `theme-chip ${game.theme.id === t.id ? 'active' : ''}`;
-    btn.innerHTML = `
-      <div class="theme-swatch" style="background: linear-gradient(135deg, ${t.primary}, ${t.accent})"></div>
-      <div class="theme-chip-name">${t.name}</div>
-    `;
+    btn.className = `theme-dot-btn ${game.theme.id === t.id ? 'active' : ''}`;
+    btn.title = t.name;
+    btn.style.background = `linear-gradient(135deg, ${t.primary}, ${t.accent})`;
     btn.onclick = () => {
       game.setTheme(t);
       applyThemeToCSS(t);

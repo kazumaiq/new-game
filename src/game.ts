@@ -739,9 +739,12 @@ export class AetherGame {
     let kind: EnemyKind = forcedKind ?? 'swarmer';
     if (!forcedKind) {
       const r = Math.random();
-      if (this.wave >= 4 && r < 0.16) kind = 'warden';
-      else if (this.wave >= 3 && r < 0.34) kind = 'sniper';
-      else if (this.wave >= 2 && r < 0.56) kind = 'splitter';
+      if (this.wave >= 5 && r < 0.12) kind = 'spawner';
+      else if (this.wave >= 4 && r < 0.25) kind = 'shielder';
+      else if (this.wave >= 4 && r < 0.38) kind = 'warden';
+      else if (this.wave >= 3 && r < 0.54) kind = 'sniper';
+      else if (this.wave >= 2 && r < 0.7) kind = 'bomber';
+      else if (this.wave >= 2 && r < 0.84) kind = 'splitter';
       else kind = 'swarmer';
     }
 
@@ -753,7 +756,28 @@ export class AetherGame {
     let xpValue = 12;
     let scoreValue = 100;
 
-    if (kind === 'splitter') {
+    if (kind === 'bomber') {
+      radius = 16;
+      hp = 36 * hpScale;
+      speed = 215 + Math.min(80, this.wave * 5);
+      color = '#ff7b00';
+      xpValue = 16;
+      scoreValue = 160;
+    } else if (kind === 'shielder') {
+      radius = 24;
+      hp = 115 * hpScale;
+      speed = 95;
+      color = '#3a86ff';
+      xpValue = 30;
+      scoreValue = 310;
+    } else if (kind === 'spawner') {
+      radius = 26;
+      hp = 120 * hpScale;
+      speed = 75;
+      color = '#00ff87';
+      xpValue = 38;
+      scoreValue = 380;
+    } else if (kind === 'splitter') {
       radius = 22;
       hp = 68 * hpScale;
       speed = 115 + Math.min(60, this.wave * 4);
@@ -948,15 +972,28 @@ export class AetherGame {
         moveY /= len;
       }
 
-      // Aiming: manual right-stick -> mouse -> smart mobile auto-aim
+      // Прицеливание: правый стик (вручную) -> мышь -> по курсу полёта с узким конусом (±28°)
       if (this.touchAimActive && (Math.abs(this.touchAimX) > 0.1 || Math.abs(this.touchAimY) > 0.1)) {
         p.angle = Math.atan2(this.touchAimY, this.touchAimX);
       } else if (this.isTouchDevice) {
-        const nearest = this.findNearestEnemy(p.x, p.y);
-        if (nearest) {
-          p.angle = Math.atan2(nearest.y - p.y, nearest.x - p.x);
-        } else if (len > 0.1) {
-          p.angle = Math.atan2(moveY, moveX);
+        if (len > 0.1) {
+          const moveAngle = Math.atan2(moveY, moveX);
+          let bestAngle = moveAngle;
+          let bestDist = 420;
+          for (const e of this.enemies) {
+            const d = Math.hypot(e.x - p.x, e.y - p.y);
+            if (d < bestDist) {
+              const ea = Math.atan2(e.y - p.y, e.x - p.x);
+              let diff = ea - moveAngle;
+              while (diff > Math.PI) diff -= Math.PI * 2;
+              while (diff < -Math.PI) diff += Math.PI * 2;
+              if (Math.abs(diff) < 0.48) {
+                bestDist = d;
+                bestAngle = ea;
+              }
+            }
+          }
+          p.angle = bestAngle;
         }
       } else {
         const worldMouseX = this.mouseScreenX + this.camX - this.width / 2;
@@ -1155,6 +1192,44 @@ export class AetherGame {
       if (e.kind === 'swarmer' || e.kind === 'mini' || e.kind === 'splitter') {
         e.vx = dirX * e.speed;
         e.vy = dirY * e.speed;
+      } else if (e.kind === 'bomber') {
+        if (e.aimTimer > 0) {
+          e.vx *= 0.8;
+          e.vy *= 0.8;
+          e.aimTimer -= dt;
+          if (e.aimTimer <= 0) {
+            // Detonate AoE blast
+            const idx = this.enemies.indexOf(e);
+            if (idx !== -1) this.enemies.splice(idx, 1);
+            this.spawnShockwave(e.x, e.y, 115, '#ff7b00', 5);
+            this.spawnParticles(e.x, e.y, 20, '#ff7b00', 260, 'shard');
+            if (!isTitle) sound.playExplosion(1.2);
+            if (!isTitle && p.invulnTimer <= 0 && Math.hypot(p.x - e.x, p.y - e.y) < 115) {
+              this.damagePlayer(22);
+            }
+            continue;
+          }
+        } else {
+          e.vx = dirX * e.speed;
+          e.vy = dirY * e.speed;
+          if (dist < 78 && !isTitle) {
+            e.aimTimer = 0.55;
+          }
+        }
+      } else if (e.kind === 'shielder') {
+        e.aimAngle = Math.atan2(dy, dx);
+        e.vx = dirX * e.speed;
+        e.vy = dirY * e.speed;
+      } else if (e.kind === 'spawner') {
+        const desired = 360;
+        const push = dist > desired ? 1 : dist < desired - 70 ? -0.6 : 0;
+        e.vx = dirX * e.speed * push;
+        e.vy = dirY * e.speed * push;
+        e.shootTimer -= dt;
+        if (e.shootTimer <= 0 && this.enemies.length < 48) {
+          e.shootTimer = 3.2;
+          this.spawnEnemy('mini');
+        }
       } else if (e.kind === 'sniper') {
         if (e.aimTimer > 0) {
           e.vx *= 0.85;
@@ -1473,6 +1548,22 @@ export class AetherGame {
       if (isBoss) {
         this.hitStop = 0.08;
         this.bossActive = false;
+        if (this.mode === 'classic' && this.wave >= 10 && this.state === 'playing') {
+          this.state = 'gameover';
+          this.pushHud();
+          const rawShards = Math.max(25, Math.floor(this.kills * 0.5 + this.wave * 10)) + 100;
+          this.callbacks.onGameOver({
+            score: this.score + 5000,
+            wave: this.wave,
+            kills: this.kills,
+            maxCombo: this.maxCombo,
+            shards: Math.round(rawShards * this.greedMult),
+            victory: true,
+            mode: this.mode,
+            upgrades: { ...this.acquiredUpgrades },
+          });
+          return;
+        }
       }
 
       this.spawnParticles(e.x, e.y, isBoss ? 55 : 18, e.color, isBoss ? 420 : 240, 'shard');
@@ -2187,6 +2278,26 @@ export class AetherGame {
       ctx.restore();
     }
 
+    if (e.kind === 'bomber' && e.aimTimer > 0) {
+      ctx.save();
+      ctx.strokeStyle = `rgba(255, 123, 0, ${0.4 + Math.sin(this.time * 28) * 0.4})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, 115, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    if (e.kind === 'shielder') {
+      ctx.save();
+      ctx.strokeStyle = '#70e0ff';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, e.radius + 7, e.aimAngle - 0.9, e.aimAngle + 0.9);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     ctx.save();
     ctx.translate(e.x, e.y);
     ctx.rotate(e.angle);
@@ -2202,9 +2313,9 @@ export class AetherGame {
     const sides =
       e.kind === 'swarmer' || e.kind === 'mini'
         ? 3
-        : e.kind === 'sniper'
+        : e.kind === 'sniper' || e.kind === 'bomber'
         ? 4
-        : e.kind === 'splitter'
+        : e.kind === 'splitter' || e.kind === 'spawner'
         ? 6
         : 8;
 
@@ -2219,6 +2330,13 @@ export class AetherGame {
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
+
+    if (e.kind === 'spawner') {
+      ctx.fillStyle = '#00ff87';
+      ctx.beginPath();
+      ctx.arc(0, 0, 7, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     if (e.kind === 'boss') {
       ctx.rotate(-e.angle * 2);
