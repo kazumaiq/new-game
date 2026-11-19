@@ -1,3 +1,5 @@
+import { ICONS } from './icons';
+
 export type ShipClassId = 'interceptor' | 'juggernaut' | 'phantom' | 'tesla';
 
 export interface ShipClassDef {
@@ -122,7 +124,7 @@ export const SHIP_CLASSES: ShipClassDef[] = [
     role: 'БАЛАНС',
     cost: 0,
     perkText: 'Быстрый и удобный корабль для старта.',
-    ultiName: '⚡ ГИПЕР-ЛУЧ',
+    ultiName: 'ГИПЕР-ЛУЧ',
     ultiDesc: 'Прожигает всех врагов на линии мощным лазером.',
     hpBonus: 0,
     speedMult: 1,
@@ -136,7 +138,7 @@ export const SHIP_CLASSES: ShipClassDef[] = [
     role: 'БРОНЯ + 2 ПУЛИ',
     cost: 120,
     perkText: '+40 ХП и сразу стреляет двумя пулями.',
-    ultiName: '🛡 ТАРАН',
+    ultiName: 'ЭНЕРГО-ТАРАН',
     ultiDesc: '3.5 сек неуязвимости и таранный щит, сносящий врагов.',
     hpBonus: 40,
     speedMult: 0.92,
@@ -150,7 +152,7 @@ export const SHIP_CLASSES: ShipClassDef[] = [
     role: 'СКОРОСТЬ / КРИТ',
     cost: 260,
     perkText: '+15% скорости, +15% крита и быстрый рывок.',
-    ultiName: '👥 КЛОНЫ',
+    ultiName: 'ТЕНЕВЫЕ КЛОНЫ',
     ultiDesc: '2 теневых клона 5.5 сек стреляют вместе с тобой.',
     hpBonus: -10,
     speedMult: 1.15,
@@ -164,7 +166,7 @@ export const SHIP_CLASSES: ShipClassDef[] = [
     role: 'МОЛНИИ + КЛИНКИ',
     cost: 450,
     perkText: 'Сразу бьёт цепной молнией и имеет защитные клинки.',
-    ultiName: '🌩 БУРЯ',
+    ultiName: 'ГРОЗОВАЯ БУРЯ',
     ultiDesc: 'Бьёт мощнейшими молниями всех врагов на экране.',
     hpBonus: 10,
     speedMult: 1.04,
@@ -178,7 +180,7 @@ export const META_UPGRADES: MetaUpgradeDef[] = [
   {
     id: 'meta_damage',
     name: 'Урон оружия',
-    icon: '◆',
+    icon: ICONS.shard,
     description: '+8% к урону всех пуль навсегда.',
     maxLevel: 5,
     baseCost: 40,
@@ -187,7 +189,7 @@ export const META_UPGRADES: MetaUpgradeDef[] = [
   {
     id: 'meta_hp',
     name: 'Прочность корпуса',
-    icon: '⬡',
+    icon: ICONS.hangar,
     description: '+15 к здоровью на старте боя.',
     maxLevel: 5,
     baseCost: 35,
@@ -196,7 +198,7 @@ export const META_UPGRADES: MetaUpgradeDef[] = [
   {
     id: 'meta_speed',
     name: 'Мощность двигателя',
-    icon: '»',
+    icon: ICONS.dash,
     description: '+6% к скорости полёта навсегда.',
     maxLevel: 5,
     baseCost: 35,
@@ -205,7 +207,7 @@ export const META_UPGRADES: MetaUpgradeDef[] = [
   {
     id: 'meta_greed',
     name: 'Бонус кристаллов',
-    icon: '✦',
+    icon: ICONS.prism,
     description: '+15% к награде осколками после боя.',
     maxLevel: 5,
     baseCost: 45,
@@ -214,7 +216,7 @@ export const META_UPGRADES: MetaUpgradeDef[] = [
   {
     id: 'meta_startlvl',
     name: 'Быстрый старт',
-    icon: '⚡',
+    icon: ICONS.bolt,
     description: 'Выбирай первый апгрейд сразу в начале боя!',
     maxLevel: 1,
     baseCost: 150,

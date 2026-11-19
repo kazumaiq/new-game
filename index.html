@@ -13,6 +13,7 @@
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="apple-touch-icon" href="./icon.svg" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://sad.adsgram.ai/js/sad.min.js" async></script>
     <title>AETHER RIFT — Неоновый Космический Рогалик Онлайн</title>
     <meta
       name="description"
@@ -59,8 +60,8 @@
             <span id="hud-mode-label">ВОЛНА</span>
             <strong id="hud-wave">01</strong>
           </div>
-          <div id="blitz-timer-pill" class="overclock-pill hidden">⏱ 03:00</div>
-          <div id="overclock-pill" class="overclock-pill hidden">⚡ ПЕРЕГРУЗКА x2</div>
+          <div id="blitz-timer-pill" class="overclock-pill hidden">03:00</div>
+          <div id="overclock-pill" class="overclock-pill hidden">ПЕРЕГРУЗКА x2</div>
           <div id="boss-bar-wrap" class="boss-bar-wrap hidden">
             <div id="boss-name" class="boss-name">МОНОЛИТ ПУСТОТЫ</div>
             <div class="boss-track">
@@ -79,8 +80,8 @@
             <small id="combo-count">10 УДАР.</small>
           </div>
           <div class="hud-actions">
-            <button id="btn-mute" class="icon-btn" title="Звук">🔊</button>
-            <button id="btn-pause" class="icon-btn" title="Пауза (Esc)">⏸</button>
+            <button id="btn-mute" class="icon-btn" title="Звук"><span data-ico="soundOn"></span></button>
+            <button id="btn-pause" class="icon-btn" title="Пауза (Esc)"><span data-ico="pause"></span></button>
           </div>
         </div>
       </div>
@@ -90,12 +91,12 @@
         <div class="ability-bar">
           <button id="btn-dash" class="ability-pill">
             <span class="key-hint">ПРОБЕЛ</span>
-            <span class="ab-name">⚡ РЫВОК</span>
+            <span class="ab-name"><span data-ico="dash"></span> РЫВОК</span>
             <div class="ab-track"><div id="dash-bar" class="ab-fill"></div></div>
           </button>
           <button id="btn-nova" class="ability-pill nova-pill">
             <span class="key-hint">E / SHIFT</span>
-            <span id="hud-ulti-name" class="ab-name">⚡ ГИПЕР-ЛУЧ</span>
+            <span id="hud-ulti-name" class="ab-name">ГИПЕР-ЛУЧ</span>
             <div class="ab-track"><div id="nova-bar" class="ab-fill nova-fill"></div></div>
           </button>
         </div>
@@ -113,33 +114,34 @@
             <span id="pilot-title-tag" class="rank-pill hidden"></span>
           </div>
           <div class="header-right">
-            <button id="btn-capsule" class="capsule-btn" title="Капсула дня">🎁</button>
+            <button id="btn-capsule" class="capsule-btn" title="Капсула дня"><span data-ico="capsule"></span></button>
             <div class="shards-pill" title="Эфирные Осколки">
-              <span>✦</span>
+              <span data-ico="shard"></span>
               <strong id="pilot-shards">0</strong>
             </div>
-            <button id="btn-controls" class="icon-btn" title="Настройки">⚙️</button>
+            <button id="btn-controls" class="icon-btn" title="Настройки"><span data-ico="settings"></span></button>
           </div>
         </div>
 
         <!-- Центр: Лого, Цель, Режим, Корабль, Цвет, Старт -->
-        <div class="lobby-hero">
+        <div class="lobby-hero cyber-frame">
           <div id="challenge-banner" class="challenge-banner hidden"></div>
 
+          <div class="hero-kicker">КОСМИЧЕСКИЙ АРЕННЫЙ РОГАЛИК</div>
           <h1 class="game-title">AETHER <span>RIFT</span></h1>
-          <div class="goal-pill">🎯 ЦЕЛЬ: ПРОЙДИ 10 ВОЛН И УНИЧТОЖЬ БОССА</div>
+          <div class="goal-pill"><span data-ico="quests"></span> ЦЕЛЬ: ПРОЙДИ 10 ВОЛН И УНИЧТОЖЬ БОССА</div>
 
           <div id="mode-tabs" class="mode-tabs">
-            <button class="mode-tab active" data-mode="classic">∞ 10 ВОЛН</button>
-            <button class="mode-tab" data-mode="blitz">⚡ БЛИЦ 3:00</button>
-            <button class="mode-tab" data-mode="daily">📅 ДЕНЬ</button>
+            <button class="mode-tab active" data-mode="classic"><span data-ico="infinity"></span> 10 ВОЛН</button>
+            <button class="mode-tab" data-mode="blitz"><span data-ico="clock"></span> БЛИЦ 3:00</button>
+            <button class="mode-tab" data-mode="daily"><span data-ico="calendar"></span> ДЕНЬ</button>
           </div>
 
           <div class="ship-showcase">
             <button id="btn-prev-ship" class="ship-arrow" title="Предыдущий">‹</button>
             <div class="ship-showcase-info">
               <strong id="hero-ship-name">ИСТРЕБИТЕЛЬ</strong>
-              <span id="hero-ship-ulti">Ульта: ⚡ ГИПЕР-ЛУЧ</span>
+              <span id="hero-ship-ulti">Ульта: ГИПЕР-ЛУЧ</span>
             </div>
             <button id="btn-next-ship" class="ship-arrow" title="Следующий">›</button>
           </div>
@@ -147,7 +149,7 @@
           <div id="theme-grid" class="theme-dots"></div>
 
           <button id="btn-start" class="btn-primary btn-launch">
-            <span>🚀 В БОЙ</span>
+            <span class="btn-ico-label"><span data-ico="play"></span> В БОЙ</span>
             <span id="selected-ship-badge" class="ship-mini-badge">ИСТРЕБИТЕЛЬ</span>
           </button>
         </div>
@@ -155,72 +157,76 @@
         <!-- Нижний док -->
         <div class="lobby-dock lobby-dock-5 glass-bar">
           <button id="btn-hangar" class="dock-btn">
-            <span class="dock-ico">🛠</span>
+            <span class="dock-ico" data-ico="hangar"></span>
             <span>Ангар</span>
           </button>
           <button id="btn-quests" class="dock-btn btn-notify-wrap">
-            <span class="dock-ico">🎯</span>
+            <span class="dock-ico" data-ico="quests"></span>
             <span>Задания</span>
             <span id="quest-dot" class="notify-dot hidden"></span>
           </button>
           <button id="btn-titles" class="dock-btn">
-            <span class="dock-ico">🏅</span>
+            <span class="dock-ico" data-ico="medal"></span>
             <span>Титулы</span>
           </button>
           <button id="btn-coop" class="dock-btn">
-            <span class="dock-ico">👥</span>
+            <span class="dock-ico" data-ico="coop"></span>
             <span>Онлайн</span>
           </button>
           <button id="btn-scores" class="dock-btn">
-            <span class="dock-ico">🏆</span>
+            <span class="dock-ico" data-ico="trophy"></span>
             <span>Топ</span>
           </button>
         </div>
       </div>
     </div>
 
-    <!-- АНГАР: КОРАБЛИ И ПОСТОЯННАЯ ПРОКАЧКА -->
+    <!-- АНГАР -->
     <div id="hangar-screen" class="overlay hidden">
-      <div class="glass-panel modal-scroll">
+      <div class="glass-panel modal-scroll cyber-frame">
         <div class="modal-top-bar">
-          <h2>🛠 АНГАР</h2>
-          <div class="shards-pill"><span>✦</span><strong id="hangar-shards">0</strong></div>
+          <h2><span data-ico="hangar"></span> АНГАР</h2>
+          <div class="shards-pill"><span data-ico="shard"></span><strong id="hangar-shards">0</strong></div>
         </div>
         <div class="section-label">КЛАССЫ КОРАБЛЕЙ</div>
         <div id="ships-list" class="ships-list"></div>
-        <div class="section-label" style="margin-top: 18px">ПОСТОЯННЫЕ УЛУЧШЕНИЯ (НАВСЕГДА)</div>
+        <div class="section-label" style="margin-top: 18px">ПОСТОЯННЫЕ УЛУЧШЕНИЯ</div>
         <div id="meta-list" class="meta-list"></div>
         <button id="btn-close-hangar" class="btn-primary" style="width: 100%; margin-top: 16px">ГОТОВО</button>
       </div>
     </div>
 
-    <!-- ЗАДАНИЯ ДНЯ И БОНУС -->
+    <!-- ЗАДАНИЯ ДНЯ -->
     <div id="quests-screen" class="overlay hidden">
-      <div class="glass-panel compact-panel modal-scroll">
-        <h2>🎯 ЗАДАНИЯ ДНЯ</h2>
+      <div class="glass-panel compact-panel modal-scroll cyber-frame">
+        <h2><span data-ico="quests"></span> ЗАДАНИЯ ДНЯ</h2>
         <div id="daily-bonus-box" class="daily-bonus-box"></div>
         <div id="quests-list" class="quests-list"></div>
         <button id="btn-close-quests" class="btn-primary" style="width: 100%; margin-top: 14px">НАЗАД</button>
       </div>
     </div>
 
-    <!-- ОНЛАЙН КООП (WEBRTC) -->
+    <!-- ОНЛАЙН КООП / ДУЭЛЬ -->
     <div id="coop-screen" class="overlay hidden">
-      <div class="glass-panel compact-panel modal-scroll">
-        <h2>👥 ОНЛАЙН КООП (2 ИГРОКА)</h2>
+      <div class="glass-panel compact-panel modal-scroll cyber-frame">
+        <h2><span data-ico="coop"></span> ОНЛАЙН-СЕКТОР</h2>
         <p class="coop-desc">
-          Играйте вдвоём на одной арене в реальном времени! Создай комнату и отправь ссылку другу в Telegram или WhatsApp.
+          Играйте вдвоём на одной арене в реальном времени! Создай комнату и отправь ссылку другу.
         </p>
         <div id="coop-status" class="coop-status">Не подключено</div>
 
         <div class="coop-controls">
           <div class="mode-tabs" id="online-mode-tabs">
-            <button class="mode-tab active" data-online="coop">🤝 КООП</button>
-            <button class="mode-tab" data-online="pvp">⚔️ ДУЭЛЬ 1х1</button>
+            <button class="mode-tab active" data-online="coop"><span data-ico="coop"></span> КООП</button>
+            <button class="mode-tab" data-online="pvp"><span data-ico="swords"></span> ДУЭЛЬ 1х1</button>
           </div>
           <button id="btn-coop-create" class="btn-primary" style="width: 100%">СОЗДАТЬ КОМНАТУ</button>
-          <button id="btn-coop-invite" class="btn-secondary hidden" style="width: 100%">📤 ПРИГЛАСИТЬ ДРУГА (ССЫЛКА)</button>
-          <button id="btn-coop-start" class="btn-primary hidden" style="width: 100%">🚀 ЗАПУСТИТЬ БОЙ ВДВОЁМ</button>
+          <button id="btn-coop-invite" class="btn-secondary hidden" style="width: 100%">
+            <span data-ico="share"></span> ПРИГЛАСИТЬ ДРУГА
+          </button>
+          <button id="btn-coop-start" class="btn-primary hidden" style="width: 100%">
+            <span data-ico="play"></span> ЗАПУСТИТЬ БОЙ
+          </button>
 
           <div class="coop-divider">ИЛИ ВОЙТИ ПО КОДУ</div>
           <div class="coop-join-row">
@@ -233,21 +239,42 @@
       </div>
     </div>
 
-    <!-- ЭКРАН ПОВЫШЕНИЯ УРОВНЯ -->
+    <!-- ПОВЫШЕНИЕ УРОВНЯ -->
     <div id="levelup-screen" class="overlay hidden">
       <div class="modal-wrap">
         <div class="modal-header">
-          <div class="modal-kicker">ПЕРЕГРУЗКА СИСТЕМ</div>
-          <h2>ВЫБЕРИ УЛУЧШЕНИЕ</h2>
+          <div class="modal-kicker">СИСТЕМА УЛУЧШЕНИЙ</div>
+          <h2>ВЫБЕРИ МОДУЛЬ</h2>
           <p>Нажми на карточку или клавиши <b>1</b>, <b>2</b>, <b>3</b></p>
         </div>
         <div id="upgrade-cards" class="upgrade-cards"></div>
       </div>
     </div>
 
+    <!-- ВТОРОЙ ШАНС (1 РАЗ ЗА ЗАБЕГ — МОНЕТИЗАЦИЯ) -->
+    <div id="revive-screen" class="overlay hidden">
+      <div class="glass-panel compact-panel cyber-frame">
+        <div class="modal-kicker">КРИТИЧЕСКИЙ СБОЙ КОРПУСА</div>
+        <h2><span data-ico="revive"></span> ПРОДОЛЖИТЬ БОЙ?</h2>
+        <p id="revive-desc" class="coop-desc">
+          Восстанови <b>100% корпуса</b>, очисти поле от пуль и получи <b>3 сек неуязвимости</b>. Доступно 1 раз за забег.
+        </p>
+        <div id="ad-progress-box" class="coop-status hidden">Загрузка спонсорского блока...</div>
+        <div class="cta-col">
+          <button id="btn-revive-ad" class="btn-primary">
+            <span data-ico="video"></span> ПРОДОЛЖИТЬ (РЕКЛАМА)
+          </button>
+          <button id="btn-revive-shards" class="btn-secondary">
+            <span data-ico="shard"></span> ПРОДОЛЖИТЬ ЗА 50 ОСКОЛКОВ
+          </button>
+          <button id="btn-revive-skip" class="btn-ghost">ЗАВЕРШИТЬ ЗАБЕГ</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ПАУЗА -->
     <div id="pause-screen" class="overlay hidden">
-      <div class="glass-panel compact-panel">
+      <div class="glass-panel compact-panel cyber-frame">
         <h2>ПАУЗА</h2>
         <div class="settings-list" id="pause-settings"></div>
         <div class="cta-col">
@@ -257,15 +284,15 @@
       </div>
     </div>
 
-    <!-- УПРАВЛЕНИЕ И НАСТРОЙКИ -->
+    <!-- НАСТРОЙКИ -->
     <div id="controls-screen" class="overlay hidden">
-      <div class="glass-panel compact-panel modal-scroll">
-        <h2>УПРАВЛЕНИЕ И ЭФФЕКТЫ</h2>
+      <div class="glass-panel compact-panel modal-scroll cyber-frame">
+        <h2><span data-ico="settings"></span> СИСТЕМЫ И ГРАФИКА</h2>
         <div class="controls-grid">
-          <div><b>WASD / Стик</b></div><div>Полёт (на телефоне — левый палец в любом месте)</div>
-          <div><b>Мышь / Авто</b></div><div>Прицел 360° (на телефоне авто-прицел!)</div>
-          <div><b>Пробел / Тап</b></div><div>Фазовый Рывок с неуязвимостью</div>
-          <div><b>E / Shift</b></div><div>Эфирная Нова (100% заряда)</div>
+          <div><b>WASD / Стик</b></div><div>Полёт (на телефоне — левый палец)</div>
+          <div><b>Мышь / Прицел</b></div><div>Наведение (правый палец на телефоне)</div>
+          <div><b>Пробел / Кнопка</b></div><div>Фазовый рывок с неуязвимостью</div>
+          <div><b>E / Shift</b></div><div>Уникальная Ульта корабля</div>
         </div>
         <div class="settings-list" id="title-settings"></div>
         <button id="btn-close-controls" class="btn-primary" style="width: 100%">НАЗАД</button>
@@ -274,24 +301,24 @@
 
     <!-- ЗАЛ СЛАВЫ -->
     <div id="scores-screen" class="overlay hidden">
-      <div class="glass-panel compact-panel modal-scroll">
-        <h2>🏆 ЗАЛ СЛАВЫ</h2>
+      <div class="glass-panel compact-panel modal-scroll cyber-frame">
+        <h2><span data-ico="trophy"></span> ЗАЛ СЛАВЫ</h2>
         <div class="mode-tabs" id="lb-tabs" style="margin-bottom: 14px">
-          <button class="mode-tab active" data-lb="daily">📅 ЗАБЕГ ДНЯ</button>
-          <button class="mode-tab" data-lb="all">🌍 МИРОВОЙ</button>
-          <button class="mode-tab" data-lb="local">👤 МОИ</button>
+          <button class="mode-tab active" data-lb="daily">ЗАБЕГ ДНЯ</button>
+          <button class="mode-tab" data-lb="all">МИРОВОЙ</button>
+          <button class="mode-tab" data-lb="local">МОИ</button>
         </div>
         <div id="scores-list" class="scores-list"></div>
         <button id="btn-close-scores" class="btn-primary" style="width: 100%">НАЗАД</button>
       </div>
     </div>
 
-    <!-- ЭКРАН ПОРАЖЕНИЯ -->
+    <!-- ИТОГИ ЗАБЕГА -->
     <div id="gameover-screen" class="overlay hidden">
-      <div class="glass-panel compact-panel gameover-panel modal-scroll">
-        <div id="new-record-badge" class="new-record hidden">★ НОВЫЙ РЕКОРД ★</div>
+      <div class="glass-panel compact-panel gameover-panel modal-scroll cyber-frame">
+        <div id="new-record-badge" class="new-record hidden">НОВЫЙ РЕКОРД</div>
         <h2 id="go-title">СИГНАЛ ПОТЕРЯН</h2>
-        <div class="earned-shards-banner">Получено <strong id="go-shards">+0 ✦</strong> Эфирных Осколков</div>
+        <div class="earned-shards-banner">Получено <strong id="go-shards">+0</strong> Осколков</div>
         <div class="stats-grid">
           <div class="stat-box">
             <span>СЧЁТ</span>
@@ -312,8 +339,8 @@
         </div>
         <div id="go-upgrades" class="go-upgrades"></div>
         <div class="cta-col">
-          <button id="btn-retry" class="btn-primary">🚀 ЕЩЁ РАЗ</button>
-          <button id="btn-challenge-friend" class="btn-secondary">⚔️ БРОСИТЬ ВЫЗОВ ДРУГУ</button>
+          <button id="btn-retry" class="btn-primary"><span data-ico="play"></span> ЕЩЁ РАЗ</button>
+          <button id="btn-challenge-friend" class="btn-secondary"><span data-ico="swords"></span> БРОСИТЬ ВЫЗОВ ДРУГУ</button>
           <button id="btn-go-menu" class="btn-ghost">В ГЛАВНОЕ МЕНЮ</button>
         </div>
       </div>
@@ -321,8 +348,8 @@
 
     <!-- ДОСТИЖЕНИЯ И ТИТУЛЫ -->
     <div id="titles-screen" class="overlay hidden">
-      <div class="glass-panel compact-panel modal-scroll">
-        <h2>🏅 ДОСТИЖЕНИЯ И ТИТУЛЫ</h2>
+      <div class="glass-panel compact-panel modal-scroll cyber-frame">
+        <h2><span data-ico="medal"></span> ДОСТИЖЕНИЯ И ТИТУЛЫ</h2>
         <div id="titles-list" class="quests-list"></div>
         <button id="btn-close-titles" class="btn-primary" style="width: 100%; margin-top: 14px">НАЗАД</button>
       </div>
@@ -330,60 +357,60 @@
 
     <!-- КАПСУЛА УДАЧИ -->
     <div id="capsule-screen" class="overlay hidden">
-      <div class="glass-panel compact-panel">
-        <div class="modal-kicker">ЕЖЕДНЕВНЫЙ ПОДАРОК</div>
-        <h2>🎁 КАПСУЛА УДАЧИ</h2>
-        <p id="capsule-result" class="coop-desc">Открой капсулу дня и получи случайный бонус!</p>
+      <div class="glass-panel compact-panel cyber-frame">
+        <div class="modal-kicker">ЕЖЕДНЕВНОЕ СНАБЖЕНИЕ</div>
+        <h2><span data-ico="capsule"></span> КАПСУЛА ДНЯ</h2>
+        <p id="capsule-result" class="coop-desc">Открой капсулу дня и получи случайный бонус.</p>
         <button id="btn-open-capsule" class="btn-primary" style="width: 100%">ОТКРЫТЬ КАПСУЛУ</button>
         <button id="btn-close-capsule" class="btn-ghost" style="margin-top: 10px">ЗАКРЫТЬ</button>
       </div>
     </div>
 
-    <!-- ВЫБОР ПОСЛЕ 10 ВОЛНЫ: ПОБЕДА ИЛИ БЕЗДНА -->
+    <!-- ВЫБОР ПОСЛЕ 10 ВОЛНЫ -->
     <div id="abyss-screen" class="overlay hidden">
-      <div class="glass-panel compact-panel">
-        <div class="modal-kicker">СЕКТОР ЗАЧИЩЕН!</div>
-        <h2>🏆 БОСС ПОВЕРЖЕН</h2>
+      <div class="glass-panel compact-panel cyber-frame">
+        <div class="modal-kicker">СЕКТОР ЗАЧИЩЕН</div>
+        <h2><span data-ico="trophy"></span> БОСС ПОВЕРЖЕН</h2>
         <p class="coop-desc">
-          Ты прошёл 10 волн! Забери победу или рискни и прыгни в <b>Бездну (11+ волна)</b> — там награда Осколками <b>x2</b>!
+          Ты прошёл 10 волн! Забери победу или прыгни в <b>Бездну (11+ волна)</b> — там награда Осколками <b>x2</b>.
         </p>
         <div class="cta-col">
-          <button id="btn-go-abyss" class="btn-primary">🌀 ПРОДОЛЖИТЬ В БЕЗДНУ (x2 ✦)</button>
-          <button id="btn-claim-win" class="btn-secondary">🏆 ЗАБРАТЬ ПОБЕДУ</button>
+          <button id="btn-go-abyss" class="btn-primary"><span data-ico="vortex"></span> В БЕЗДНУ (x2 ОСКОЛКИ)</button>
+          <button id="btn-claim-win" class="btn-secondary">ЗАБРАТЬ ПОБЕДУ</button>
         </div>
       </div>
     </div>
 
     <!-- ОБУЧЕНИЕ ДЛЯ НОВИЧКОВ -->
     <div id="tutorial-screen" class="overlay hidden">
-      <div class="glass-panel compact-panel modal-scroll">
-        <div class="modal-kicker">БЫСТРЫЙ СТАРТ</div>
+      <div class="glass-panel compact-panel modal-scroll cyber-frame">
+        <div class="modal-kicker">ИНСТРУКТАЖ ПИЛОТА</div>
         <h2>КАК ИГРАТЬ</h2>
         <div class="tutorial-steps">
           <div class="tut-step">
-            <div class="tut-ico">🕹️</div>
+            <div class="tut-ico" data-ico="dash"></div>
             <div>
               <strong>1. Полёт и прицел</strong>
-              <p>На телефоне: левый палец — полёт, правый — прицел (или просто лети на врага). На ПК: WASD + Мышь.</p>
+              <p>На телефоне: левый палец — полёт, правый — прицел (или лети прямо на врага). На ПК: WASD + Мышь.</p>
             </div>
           </div>
           <div class="tut-step">
-            <div class="tut-ico">💎</div>
+            <div class="tut-ico" data-ico="prism"></div>
             <div>
               <strong>2. Становись сильнее</strong>
-              <p>Собирай синие кристаллы с врагов, чтобы выбирать улучшения, и копи ✦ Осколки для Ангара.</p>
+              <p>Собирай кристаллы с врагов для выбора модулей в бою и копи Осколки для Ангара.</p>
             </div>
           </div>
           <div class="tut-step">
-            <div class="tut-ico">⚡</div>
+            <div class="tut-ico" data-ico="bolt"></div>
             <div>
-              <strong>3. Рывок и Нова</strong>
-              <p>Жми <b>⚡ РЫВОК</b>, чтобы уйти от пуль, и <b>💥 НОВУ</b> при 100%, чтобы сжечь всё вокруг. Цель — 10 волн!</p>
+              <strong>3. Рывок и Ульта</strong>
+              <p>Жми <b>РЫВОК</b>, чтобы уйти от пуль, и <b>УЛЬТУ</b> при 100%. Цель — пройти 10 волн.</p>
             </div>
           </div>
         </div>
         <button id="btn-tutorial-go" class="btn-primary" style="width: 100%; margin-top: 14px">
-          ПОНЯТНО, В БОЙ! 🚀
+          <span data-ico="play"></span> ПОНЯТНО, В БОЙ
         </button>
       </div>
     </div>

@@ -63,6 +63,7 @@ export interface GameCallbacks {
   onPvpHit?: (damage: number) => void;
   onAchievement?: (id: string) => void;
   onAbyssChoice?: () => void;
+  onReviveOffer?: () => void;
 }
 
 interface Star {
@@ -159,6 +160,7 @@ export class AetherGame {
   private blitzTimer = 180;
   private blitzBossSpawned = false;
   private inAbyss = false;
+  private reviveUsed = false;
   private bonusShards = 0;
   private bossDamagedPlayer = false;
   private slowMoTimer = 0;
@@ -362,11 +364,15 @@ export class AetherGame {
   public startLoop(): void {
     this.lastTs = performance.now();
     const tick = (ts: number) => {
-      const dt = Math.min(0.05, (ts - this.lastTs) / 1000);
-      this.lastTs = ts;
-      this.update(dt);
-      this.render();
       this.rafId = requestAnimationFrame(tick);
+      const dt = Math.min(0.05, Math.max(0, (ts - this.lastTs) / 1000));
+      this.lastTs = ts;
+      try {
+        this.update(dt);
+        this.render();
+      } catch (err) {
+        console.error('Game loop error recovered:', err);
+      }
     };
     this.rafId = requestAnimationFrame(tick);
   }
@@ -515,6 +521,46 @@ export class AetherGame {
     });
   }
 
+  public revivePlayer(): void {
+    if (this.reviveUsed) return;
+    this.reviveUsed = true;
+    this.player.hp = this.player.maxHp;
+    this.player.invulnTimer = 3.2;
+    this.state = 'playing';
+
+    // Очищаем все вражеские пули и отбрасываем ближайших врагов
+    for (let i = this.bullets.length - 1; i >= 0; i--) {
+      if (this.bullets[i].isEnemy) this.bullets.splice(i, 1);
+    }
+    this.spawnShockwave(this.player.x, this.player.y, 380, this.theme.primary, 6);
+    this.addFloatingText(this.player.x, this.player.y - 36, 'РЕАНИМАЦИЯ КОРПУСА!', this.theme.primary, 1.3);
+    sound.playNova();
+    for (const e of [...this.enemies]) {
+      if (e.hp <= 0) continue;
+      if (Math.hypot(e.x - this.player.x, e.y - this.player.y) < 340) {
+        this.damageEnemy(e, 140 + this.wave * 15, false);
+      }
+    }
+    this.pushHud();
+  }
+
+  public declineRevive(): void {
+    this.state = 'gameover';
+    this.pushHud();
+    const rawShards = Math.max(5, Math.floor(this.kills * 0.45 + this.wave * 6)) + this.bonusShards;
+    const shards = Math.round(rawShards * this.greedMult);
+    this.callbacks.onGameOver({
+      score: this.score,
+      wave: this.wave,
+      kills: this.kills,
+      maxCombo: this.maxCombo,
+      shards,
+      victory: false,
+      mode: this.mode,
+      upgrades: { ...this.acquiredUpgrades },
+    });
+  }
+
   public triggerNova(): void {
     if (this.state !== 'playing') return;
     if (this.player.novaCharge < 100) return;
@@ -528,31 +574,33 @@ export class AetherGame {
     const shipId = this.profile?.selectedShip || 'interceptor';
     if (shipId === 'interceptor') {
       this.beamTimer = 1.6;
-      this.addFloatingText(this.player.x, this.player.y - 38, '⚡ ГИПЕР-ЛУЧ!', this.theme.primary, 1.3);
+      this.addFloatingText(this.player.x, this.player.y - 38, 'ГИПЕР-ЛУЧ!', this.theme.primary, 1.3);
     } else if (shipId === 'juggernaut') {
       this.ramTimer = 3.5;
       this.player.invulnTimer = 3.5;
-      this.addFloatingText(this.player.x, this.player.y - 38, '🛡 ЭНЕРГО-ТАРАН!', '#ffb703', 1.3);
+      this.addFloatingText(this.player.x, this.player.y - 38, 'ЭНЕРГО-ТАРАН!', '#ffb703', 1.3);
     } else if (shipId === 'phantom') {
       this.cloneTimer = 5.5;
-      this.addFloatingText(this.player.x, this.player.y - 38, '👥 ТЕНЕВЫЕ КЛОНЫ!', this.theme.accent, 1.3);
+      this.addFloatingText(this.player.x, this.player.y - 38, 'ТЕНЕВЫЕ КЛОНЫ!', this.theme.accent, 1.3);
     } else if (shipId === 'tesla') {
       this.spawnShockwave(this.player.x, this.player.y, 700, '#70e0ff', 7);
-      for (let i = this.enemies.length - 1; i >= 0; i--) {
-        const e = this.enemies[i];
-        this.arcs.push({
-          points: [
-            { x: this.player.x, y: this.player.y },
-            { x: (this.player.x + e.x) / 2 + (Math.random() - 0.5) * 40, y: (this.player.y + e.y) / 2 + (Math.random() - 0.5) * 40 },
-            { x: e.x, y: e.y },
-          ],
-          color: '#70e0ff',
-          life: 0.35,
-          maxLife: 0.35,
-        });
+      for (const e of [...this.enemies]) {
+        if (e.hp <= 0) continue;
+        if (this.arcs.length < 30) {
+          this.arcs.push({
+            points: [
+              { x: this.player.x, y: this.player.y },
+              { x: (this.player.x + e.x) / 2 + (Math.random() - 0.5) * 40, y: (this.player.y + e.y) / 2 + (Math.random() - 0.5) * 40 },
+              { x: e.x, y: e.y },
+            ],
+            color: '#70e0ff',
+            life: 0.35,
+            maxLife: 0.35,
+          });
+        }
         this.damageEnemy(e, 190 + this.wave * 22, true);
       }
-      this.addFloatingText(this.player.x, this.player.y - 38, '🌩 ГРОЗОВАЯ БУРЯ!', '#70e0ff', 1.3);
+      this.addFloatingText(this.player.x, this.player.y - 38, 'ГРОЗОВАЯ БУРЯ!', '#70e0ff', 1.3);
     }
 
     this.pushHud();
@@ -561,8 +609,8 @@ export class AetherGame {
   private phantomBlast(x: number, y: number): void {
     const r = 200;
     this.spawnShockwave(x, y, r, this.theme.accent, 4);
-    for (let i = this.enemies.length - 1; i >= 0; i--) {
-      const e = this.enemies[i];
+    for (const e of [...this.enemies]) {
+      if (e.hp <= 0) continue;
       if (Math.hypot(e.x - x, e.y - y) <= r + e.radius) {
         this.damageEnemy(e, 60 + this.stats.damage * 1.45, true);
       }
@@ -726,6 +774,7 @@ export class AetherGame {
     this.blitzTimer = 180;
     this.blitzBossSpawned = false;
     this.inAbyss = false;
+    this.reviveUsed = false;
     this.bonusShards = 0;
     this.bossDamagedPlayer = false;
     this.slowMoTimer = 0;
@@ -935,8 +984,8 @@ export class AetherGame {
       this.beamTimer = Math.max(0, this.beamTimer - dt);
       const bx = Math.cos(this.player.angle);
       const by = Math.sin(this.player.angle);
-      for (let i = this.enemies.length - 1; i >= 0; i--) {
-        const e = this.enemies[i];
+      for (const e of [...this.enemies]) {
+        if (e.hp <= 0) continue;
         const ex = e.x - this.player.x;
         const ey = e.y - this.player.y;
         const proj = ex * bx + ey * by;
@@ -951,8 +1000,8 @@ export class AetherGame {
 
     if (this.ramTimer > 0) {
       this.ramTimer = Math.max(0, this.ramTimer - dt);
-      for (let i = this.enemies.length - 1; i >= 0; i--) {
-        const e = this.enemies[i];
+      for (const e of [...this.enemies]) {
+        if (e.hp <= 0) continue;
         const d = Math.hypot(e.x - this.player.x, e.y - this.player.y);
         if (d < e.radius + 72) {
           this.damageEnemy(e, (this.stats.damage * 11) * dt, false);
@@ -1185,8 +1234,8 @@ export class AetherGame {
             this.bullets.splice(i, 1);
           }
         }
-        for (let i = this.enemies.length - 1; i >= 0; i--) {
-          const e = this.enemies[i];
+        for (const e of [...this.enemies]) {
+          if (e.hp <= 0) continue;
           if (Math.hypot(e.x - bx, e.y - by) < e.radius + 14) {
             this.damageEnemy(e, this.stats.damage * 0.48 * dt * 15, false);
           }
@@ -1201,8 +1250,8 @@ export class AetherGame {
           this.bullets.splice(i, 1);
         }
       }
-      for (let i = this.enemies.length - 1; i >= 0; i--) {
-        const e = this.enemies[i];
+      for (const e of [...this.enemies]) {
+        if (e.hp <= 0) continue;
         if (Math.hypot(e.x - p.x, e.y - p.y) < vortexR + e.radius) {
           this.damageEnemy(e, this.stats.damage * 0.55 * dt * 12, false);
         }
@@ -1570,9 +1619,8 @@ export class AetherGame {
         }
         continue;
       }
-      for (let j = this.enemies.length - 1; j >= 0; j--) {
-        const e = this.enemies[j];
-        if (b.hitIds.has(e.id)) continue;
+      for (const e of [...this.enemies]) {
+        if (e.hp <= 0 || b.hitIds.has(e.id)) continue;
         if (Math.hypot(b.x - e.x, b.y - e.y) < b.radius + e.radius) {
           b.hitIds.add(e.id);
           this.damageEnemy(e, b.damage, !isTitle, b.isCrit);
@@ -1663,6 +1711,7 @@ export class AetherGame {
   }
 
   private damageEnemy(e: Enemy, amount: number, allowAudio: boolean, isCrit = false): void {
+    if (!e || e.hp <= 0) return;
     e.hp -= amount;
     e.hitFlash = 1;
     this.spawnParticles(e.x, e.y, isCrit ? 7 : 3, e.color, 160);
@@ -1762,6 +1811,11 @@ export class AetherGame {
 
       const orbCount = isBoss ? 12 : e.kind === 'warden' ? 3 : 1;
       for (let o = 0; o < orbCount; o++) {
+        const val = Math.ceil(e.xpValue / orbCount);
+        if (this.orbs.length >= 120) {
+          this.orbs[this.orbs.length - 1].value += val;
+          continue;
+        }
         const a = Math.random() * Math.PI * 2;
         const spd = 60 + Math.random() * 110;
         this.orbs.push({
@@ -1769,7 +1823,7 @@ export class AetherGame {
           y: e.y,
           vx: Math.cos(a) * spd,
           vy: Math.sin(a) * spd,
-          value: Math.ceil(e.xpValue / orbCount),
+          value: val,
           color: this.theme.primary,
           pulse: Math.random() * Math.PI * 2,
         });
@@ -1835,8 +1889,8 @@ export class AetherGame {
         this.spawnShockwave(m.x, m.y, m.radius, '#ff5400', 5);
         this.spawnParticles(m.x, m.y, 18, '#ff7b00', 250, 'shard');
         sound.playExplosion(1.1);
-        for (let j = this.enemies.length - 1; j >= 0; j--) {
-          const e = this.enemies[j];
+        for (const e of [...this.enemies]) {
+          if (e.hp <= 0) continue;
           if (Math.hypot(e.x - m.x, e.y - m.y) <= m.radius + e.radius) {
             this.damageEnemy(e, 140 + this.wave * 15, false);
           }
@@ -1874,20 +1928,13 @@ export class AetherGame {
 
     if (p.hp <= 0) {
       p.hp = 0;
-      this.state = 'gameover';
-      this.pushHud();
-      const rawShards = Math.max(5, Math.floor(this.kills * 0.45 + this.wave * 6)) + this.bonusShards;
-      const shards = Math.round(rawShards * this.greedMult);
-      this.callbacks.onGameOver({
-        score: this.score,
-        wave: this.wave,
-        kills: this.kills,
-        maxCombo: this.maxCombo,
-        shards,
-        victory: false,
-        mode: this.mode,
-        upgrades: { ...this.acquiredUpgrades },
-      });
+      if (!this.reviveUsed && this.mode !== 'pvp' && this.callbacks.onReviveOffer) {
+        this.state = 'paused';
+        this.pushHud();
+        this.callbacks.onReviveOffer();
+        return;
+      }
+      this.declineRevive();
     }
   }
 
@@ -2011,6 +2058,7 @@ export class AetherGame {
   }
 
   private addFloatingText(x: number, y: number, text: string, color: string, scale = 1): void {
+    if (this.texts.length >= 20) this.texts.shift();
     this.texts.push({ x, y, vy: -58, text, color, life: 0.9, maxLife: 0.9, scale });
   }
 
@@ -2022,7 +2070,7 @@ export class AetherGame {
     maxSpeed: number,
     shape: 'circle' | 'shard' = 'circle'
   ): void {
-    if (this.particles.length > 450) return;
+    if (this.particles.length > 220) return;
     for (let i = 0; i < count; i++) {
       const a = Math.random() * Math.PI * 2;
       const spd = 40 + Math.random() * maxSpeed;
@@ -2046,6 +2094,7 @@ export class AetherGame {
   }
 
   private spawnShockwave(x: number, y: number, maxRadius: number, color: string, lineWidth: number): void {
+    if (this.shockwaves.length >= 24) this.shockwaves.shift();
     this.shockwaves.push({
       x,
       y,
@@ -2227,7 +2276,7 @@ export class AetherGame {
       ctx.font = '700 13px "Exo 2", sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(pu.kind === 'heal' ? '+' : pu.kind === 'magnet' ? 'M' : '⚡', pu.x, pu.y + 1);
+      ctx.fillText(pu.kind === 'heal' ? '+' : pu.kind === 'magnet' ? 'M' : '2X', pu.x, pu.y + 1);
     }
 
     for (const s of this.shockwaves) {

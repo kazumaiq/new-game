@@ -1,7 +1,9 @@
 import './style.css';
 import { sound } from './audio';
 import { AetherGame, HudSnapshot } from './game';
+import { IconKey, ICONS, iconHtml } from './icons';
 import { fetchCloudProfile, fetchGlobalLeaderboard, saveCloudProfile, submitGlobalScore } from './leaderboard';
+import { showRewardedAd } from './monetization';
 import { CoopNetwork } from './network';
 import {
   ACHIEVEMENTS,
@@ -35,7 +37,16 @@ const scoresScreen = el<HTMLDivElement>('scores-screen');
 const titlesScreen = el<HTMLDivElement>('titles-screen');
 const capsuleScreen = el<HTMLDivElement>('capsule-screen');
 const abyssScreen = el<HTMLDivElement>('abyss-screen');
+const reviveScreen = el<HTMLDivElement>('revive-screen');
 const gameoverScreen = el<HTMLDivElement>('gameover-screen');
+
+// Внедряем все векторные SVG-иконки
+document.querySelectorAll<HTMLElement>('[data-ico]').forEach((node) => {
+  const key = node.getAttribute('data-ico') as IconKey;
+  if (key && ICONS[key]) {
+    node.innerHTML = iconHtml(key);
+  }
+});
 const waveBanner = el<HTMLDivElement>('wave-banner');
 const touchLayer = el<HTMLDivElement>('touch-layer');
 
@@ -149,7 +160,7 @@ function unlockAchievement(id: string): void {
   saveProfile(profile);
   void saveCloudProfile(profile);
   refreshLobbyUI();
-  showWaveBanner(`🏅 ДОСТИЖЕНИЕ: ${def.name}`, `ТИТУЛ ${def.titleTag} +${def.reward} ✦`);
+  showWaveBanner(`ДОСТИЖЕНИЕ: ${def.name}`, `ТИТУЛ ${def.titleTag} +${def.reward} ОСКОЛКОВ`);
 }
 
 const game = new AetherGame(canvas, {
@@ -163,6 +174,13 @@ const game = new AetherGame(canvas, {
   onAchievement: unlockAchievement,
   onAbyssChoice: () => {
     abyssScreen.classList.remove('hidden');
+  },
+  onReviveOffer: () => {
+    const shardsBtn = el<HTMLButtonElement>('btn-revive-shards');
+    shardsBtn.disabled = profile.shards < 50;
+    el('ad-progress-box').classList.add('hidden');
+    el<HTMLButtonElement>('btn-revive-ad').disabled = false;
+    reviveScreen.classList.remove('hidden');
   },
 });
 
@@ -487,7 +505,7 @@ function renderSettingsInto(container: HTMLElement): void {
 }
 
 function updateMuteIcon(): void {
-  el('btn-mute').textContent = game.settings.soundEnabled || game.settings.musicEnabled ? '🔊' : '🔇';
+  el('btn-mute').innerHTML = game.settings.soundEnabled || game.settings.musicEnabled ? ICONS.soundOn : ICONS.soundOff;
 }
 
 function renderHud(hud: HudSnapshot): void {
@@ -511,7 +529,7 @@ function renderHud(hud: HudSnapshot): void {
     blitzPill.classList.remove('hidden');
     const mins = Math.floor(hud.blitzTimer / 60);
     const secs = String(hud.blitzTimer % 60).padStart(2, '0');
-    blitzPill.textContent = `⏱ ${String(mins).padStart(2, '0')}:${secs}`;
+    blitzPill.textContent = `${String(mins).padStart(2, '0')}:${secs}`;
   } else {
     blitzPill.classList.add('hidden');
   }
@@ -645,9 +663,9 @@ function handleGameOver(summary: {
   const baseUrl = `${window.location.origin}${window.location.pathname}`;
   lastChallengeUrl = `${baseUrl}?challenge=${summary.score}&by=${encodeURIComponent(profile.callsign)}`;
 
-  el('go-title').textContent = summary.victory ? '🏆 ПОБЕДА!' : 'СИГНАЛ ПОТЕРЯН';
+  el('go-title').textContent = summary.victory ? 'ПОБЕДА' : 'СИГНАЛ ПОТЕРЯН';
   el('new-record-badge').classList.toggle('hidden', !isNewRecord);
-  el('go-shards').textContent = `+${summary.shards} ✦`;
+  el('go-shards').textContent = `+${summary.shards}`;
   el('go-score').textContent = summary.score.toLocaleString('ru-RU');
   el('go-wave').textContent = String(summary.wave);
   el('go-kills').textContent = String(summary.kills);
@@ -857,16 +875,16 @@ el('btn-open-capsule').onclick = () => {
   let msg = '';
   if (roll < 0.35) {
     profile.shards += 45;
-    msg = '🎉 Выпало +45 ✦ Эфирных Осколков!';
+    msg = 'Награда: +45 Эфирных Осколков!';
   } else if (roll < 0.6) {
     profile.shards += 75;
-    msg = '💎 ДЖЕКПОТ! Выпало +75 ✦ Эфирных Осколков!';
+    msg = 'ДЖЕКПОТ: +75 Эфирных Осколков!';
   } else if (roll < 0.8) {
     profile.nextRunBuff = 'shield';
-    msg = '🛡 Выпал Стартовый Силовой Щит на следующий бой!';
+    msg = 'Награда: Стартовый Силовой Щит на следующий бой!';
   } else {
     profile.nextRunBuff = 'xp';
-    msg = '⚡ Выпало +50% Опыта на следующий бой!';
+    msg = 'Награда: +50% Опыта на следующий бой!';
   }
   sound.playLevelUp();
   saveProfile(profile);
@@ -875,7 +893,42 @@ el('btn-open-capsule').onclick = () => {
   el('capsule-result').textContent = msg;
   const btn = el<HTMLButtonElement>('btn-open-capsule');
   btn.disabled = true;
-  btn.textContent = 'ПОЛУЧЕНО ✓';
+  btn.textContent = 'ПОЛУЧЕНО';
+};
+
+el('btn-revive-ad').onclick = async () => {
+  const adBtn = el<HTMLButtonElement>('btn-revive-ad');
+  const box = el('ad-progress-box');
+  adBtn.disabled = true;
+  box.classList.remove('hidden');
+  box.textContent = 'Загрузка рекламного блока...';
+
+  const ok = await showRewardedAd((sec) => {
+    box.textContent = sec > 0 ? `Спонсорский блок: осталось ${sec} сек...` : 'Готово! Реанимация...';
+  });
+
+  if (ok) {
+    reviveScreen.classList.add('hidden');
+    game.revivePlayer();
+  } else {
+    box.textContent = 'Не удалось загрузить рекламу. Попробуй снова или используй Осколки.';
+    adBtn.disabled = false;
+  }
+};
+
+el('btn-revive-shards').onclick = () => {
+  if (profile.shards < 50) return;
+  profile.shards -= 50;
+  saveProfile(profile);
+  void saveCloudProfile(profile);
+  refreshLobbyUI();
+  reviveScreen.classList.add('hidden');
+  game.revivePlayer();
+};
+
+el('btn-revive-skip').onclick = () => {
+  reviveScreen.classList.add('hidden');
+  game.declineRevive();
 };
 
 el('btn-go-abyss').onclick = () => {
@@ -902,7 +955,7 @@ el('btn-coop-invite').onclick = () => {
     `Залетай ко мне в космический рогалик AETHER RIFT! Комната ${coop.roomCode}:`,
     url,
     el('btn-coop-invite'),
-    '📤 ПРИГЛАСИТЬ ДРУГА (ССЫЛКА)'
+    'ПРИГЛАСИТЬ ДРУГА'
   );
 };
 el('btn-coop-start').onclick = () => {
@@ -970,7 +1023,7 @@ el('btn-challenge-friend').onclick = () => {
     `Я набрал ${lastRunScore.toLocaleString('ru-RU')} очков в AETHER RIFT! Сможешь побить мой рекорд?`,
     lastChallengeUrl,
     el('btn-challenge-friend'),
-    '⚔️ БРОСИТЬ ВЫЗОВ ДРУГУ'
+    'БРОСИТЬ ВЫЗОВ ДРУГУ'
   );
 };
 
@@ -980,7 +1033,7 @@ const challengeScore = params.get('challenge');
 const challengeBy = params.get('by');
 if (challengeScore && challengeBy) {
   const banner = el('challenge-banner');
-  banner.innerHTML = `⚔️ <b>${challengeBy}</b> бросает тебе вызов! Цель: <b>${Number(challengeScore).toLocaleString('ru-RU')}</b> очков`;
+  banner.innerHTML = `${ICONS.swords} <b>${challengeBy}</b> бросает тебе вызов! Цель: <b>${Number(challengeScore).toLocaleString('ru-RU')}</b> очков`;
   banner.classList.remove('hidden');
 }
 

@@ -5,9 +5,19 @@ class SoundEngine {
   private sfxGain: GainNode | null = null;
   private musicTimer: number | null = null;
   private step = 0;
+  private lastTimes: Record<string, number> = {};
+  private noiseBuffer: AudioBuffer | null = null;
 
   public soundEnabled = true;
   public musicEnabled = true;
+
+  private canPlay(key: string, minMs: number): boolean {
+    const now = performance.now();
+    const prev = this.lastTimes[key] || 0;
+    if (now - prev < minMs) return false;
+    this.lastTimes[key] = now;
+    return true;
+  }
 
   public init(): void {
     if (this.ctx) {
@@ -111,7 +121,7 @@ class SoundEngine {
   }
 
   public playShoot(isCrit = false): void {
-    if (!this.soundEnabled || !this.ctx || !this.sfxGain) return;
+    if (!this.soundEnabled || !this.ctx || !this.sfxGain || !this.canPlay('shoot', 45)) return;
     const now = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
@@ -131,7 +141,7 @@ class SoundEngine {
   }
 
   public playHit(combo = 1): void {
-    if (!this.soundEnabled || !this.ctx || !this.sfxGain) return;
+    if (!this.soundEnabled || !this.ctx || !this.sfxGain || !this.canPlay('hit', 45)) return;
     const now = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
@@ -151,7 +161,7 @@ class SoundEngine {
   }
 
   public playExplosion(scale = 1): void {
-    if (!this.soundEnabled || !this.ctx || !this.sfxGain) return;
+    if (!this.soundEnabled || !this.ctx || !this.sfxGain || !this.canPlay('exp', 55)) return;
     const now = this.ctx.currentTime;
 
     // Sub punch
@@ -167,15 +177,17 @@ class SoundEngine {
     osc.start(now);
     osc.stop(now + 0.25 * scale);
 
-    // Filtered noise burst
-    const bufferSize = Math.floor(this.ctx.sampleRate * 0.18 * scale);
-    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-      data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+    // Reusable noise buffer (prevents GC spikes on mobile)
+    if (!this.noiseBuffer) {
+      const len = Math.floor(this.ctx.sampleRate * 0.25);
+      this.noiseBuffer = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+      const data = this.noiseBuffer.getChannelData(0);
+      for (let i = 0; i < len; i++) {
+        data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+      }
     }
     const noise = this.ctx.createBufferSource();
-    noise.buffer = buffer;
+    noise.buffer = this.noiseBuffer;
 
     const filter = this.ctx.createBiquadFilter();
     filter.type = 'bandpass';
@@ -254,7 +266,7 @@ class SoundEngine {
   }
 
   public playPickup(): void {
-    if (!this.soundEnabled || !this.ctx || !this.sfxGain) return;
+    if (!this.soundEnabled || !this.ctx || !this.sfxGain || !this.canPlay('pickup', 45)) return;
     const now = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
