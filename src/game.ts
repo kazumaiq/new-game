@@ -1,6 +1,6 @@
 import { sound } from './audio';
 import { NetRole, RemotePlayerState } from './network';
-import { PlayerProfile, SHIP_CLASSES } from './progression';
+import { PlayerProfile, SHIP_CLASSES, ShipClassId } from './progression';
 import { THEMES } from './themes';
 import { UPGRADES } from './upgrades';
 import {
@@ -353,8 +353,8 @@ export class AetherGame {
 
   public resize(): void {
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
-    this.width = window.innerWidth;
-    this.height = window.innerHeight;
+    this.width = window.visualViewport?.width || window.innerWidth;
+    this.height = window.visualViewport?.height || window.innerHeight;
     this.canvas.width = Math.floor(this.width * this.dpr);
     this.canvas.height = Math.floor(this.height * this.dpr);
     this.canvas.style.width = `${this.width}px`;
@@ -2433,13 +2433,13 @@ export class AetherGame {
   }
 
   private renderMinimap(ctx: CanvasRenderingContext2D): void {
-    const mw = this.isTouchDevice ? 76 : 96;
-    const mh = this.isTouchDevice ? 57 : 72;
-    const mx = 14;
-    const my = this.height - mh - 16;
+    const mw = this.isTouchDevice ? 72 : 96;
+    const mh = this.isTouchDevice ? 54 : 72;
+    const mx = 12;
+    const my = this.height - mh - 18;
 
     ctx.save();
-    ctx.fillStyle = 'rgba(7, 11, 24, 0.65)';
+    ctx.fillStyle = 'rgba(7, 11, 24, 0.7)';
     ctx.strokeStyle = this.hexToRgba(this.theme.primary, 0.35);
     ctx.lineWidth = 1.2;
     ctx.beginPath();
@@ -2447,20 +2447,39 @@ export class AetherGame {
     ctx.fill();
     ctx.stroke();
 
+    // Subtle corner reticle ticks
+    ctx.strokeStyle = this.theme.primary;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(mx, my + 8);
+    ctx.lineTo(mx, my);
+    ctx.lineTo(mx + 8, my);
+    ctx.moveTo(mx + mw - 8, my + mh);
+    ctx.lineTo(mx + mw, my + mh);
+    ctx.lineTo(mx + mw, my + mh - 8);
+    ctx.stroke();
+
     const sx = mw / this.arenaW;
     const sy = mh / this.arenaH;
 
     for (const e of this.enemies) {
       ctx.fillStyle = e.kind === 'boss' ? '#ff0054' : '#ff70a6';
-      const r = e.kind === 'boss' ? 3.5 : 1.6;
+      const r = e.kind === 'boss' ? 3.5 : 1.5;
       ctx.beginPath();
       ctx.arc(mx + e.x * sx, my + e.y * sy, r, 0, Math.PI * 2);
       ctx.fill();
     }
 
+    const px = mx + this.player.x * sx;
+    const py = my + this.player.y * sy;
+    ctx.fillStyle = this.hexToRgba(this.theme.primary, 0.35);
+    ctx.beginPath();
+    ctx.arc(px, py, 5, 0, Math.PI * 2);
+    ctx.fill();
+
     ctx.fillStyle = this.theme.primary;
     ctx.beginPath();
-    ctx.arc(mx + this.player.x * sx, my + this.player.y * sy, 2.6, 0, Math.PI * 2);
+    ctx.arc(px, py, 2.4, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
@@ -2720,4 +2739,78 @@ export class AetherGame {
     const b = parseInt(clean.slice(4, 6), 16);
     return `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`;
   }
+}
+
+export function drawShipPreview(canvas: HTMLCanvasElement, shipId: ShipClassId, theme: ThemePalette): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = 52;
+  const h = 52;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+
+  ctx.save();
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+  ctx.translate(w / 2, h / 2);
+  ctx.rotate(-Math.PI / 2);
+
+  ctx.shadowBlur = 14;
+  ctx.shadowColor = theme.primary;
+  ctx.strokeStyle = theme.primary;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
+  ctx.lineWidth = 2.2;
+
+  ctx.beginPath();
+  if (shipId === 'juggernaut') {
+    // Heavy twin-hull dreadnought
+    ctx.moveTo(16, 0);
+    ctx.lineTo(6, -12);
+    ctx.lineTo(-14, -14);
+    ctx.lineTo(-9, -4);
+    ctx.lineTo(-9, 4);
+    ctx.lineTo(-14, 14);
+    ctx.lineTo(6, 12);
+    ctx.closePath();
+  } else if (shipId === 'phantom') {
+    // Razor swept-wing stealth blade
+    ctx.moveTo(19, 0);
+    ctx.lineTo(-14, -15);
+    ctx.lineTo(-5, -3);
+    ctx.lineTo(-11, 0);
+    ctx.lineTo(-5, 3);
+    ctx.lineTo(-14, 15);
+    ctx.closePath();
+  } else if (shipId === 'tesla') {
+    // Arc-ring drone
+    ctx.moveTo(15, 0);
+    ctx.lineTo(-8, -11);
+    ctx.lineTo(-4, 0);
+    ctx.lineTo(-8, 11);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = theme.accent;
+    ctx.beginPath();
+    ctx.arc(0, 0, 16, 0.5, Math.PI * 2 - 0.5);
+    ctx.stroke();
+    ctx.restore();
+    return;
+  } else {
+    // Interceptor sleek delta arrow
+    ctx.moveTo(18, 0);
+    ctx.lineTo(-12, -12);
+    ctx.lineTo(-6, 0);
+    ctx.lineTo(-12, 12);
+    ctx.closePath();
+  }
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(3, 0, 2.8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }

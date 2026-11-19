@@ -1,6 +1,6 @@
 import './style.css';
 import { sound } from './audio';
-import { AetherGame, HudSnapshot } from './game';
+import { AetherGame, drawShipPreview, HudSnapshot } from './game';
 import { IconKey, ICONS, iconHtml } from './icons';
 import { fetchCloudProfile, fetchGlobalLeaderboard, saveCloudProfile, submitGlobalScore } from './leaderboard';
 import { showRewardedAd } from './monetization';
@@ -75,12 +75,22 @@ void fetchCloudProfile(profile.callsign).then((cloud) => {
 });
 
 // Telegram Mini App integration
+const TG_BOT_APP = import.meta.env.VITE_TG_BOT_APP || '';
 const tgApp = (window as unknown as {
   Telegram?: {
     WebApp?: {
       ready: () => void;
       expand: () => void;
-      initDataUnsafe?: { user?: { username?: string; first_name?: string } };
+      initData?: string;
+      setHeaderColor?: (c: string) => void;
+      setBackgroundColor?: (c: string) => void;
+      disableVerticalSwipes?: () => void;
+      enableClosingConfirmation?: () => void;
+      openTelegramLink?: (url: string) => void;
+      initDataUnsafe?: {
+        start_param?: string;
+        user?: { username?: string; first_name?: string };
+      };
     };
   };
 }).Telegram?.WebApp;
@@ -88,6 +98,10 @@ const tgApp = (window as unknown as {
 if (tgApp) {
   tgApp.ready();
   tgApp.expand();
+  tgApp.setHeaderColor?.('#03040a');
+  tgApp.setBackgroundColor?.('#03040a');
+  tgApp.disableVerticalSwipes?.();
+  tgApp.enableClosingConfirmation?.();
   const tgUser = tgApp.initDataUnsafe?.user;
   if (tgUser && profile.callsign.startsWith('ПИЛОТ-')) {
     profile.callsign = (tgUser.username || tgUser.first_name || 'ПИЛОТ').slice(0, 14).toUpperCase();
@@ -264,7 +278,12 @@ function refreshLobbyUI(): void {
   el('selected-ship-badge').textContent = ship.name;
   el('hero-ship-name').textContent = ship.name;
   el('hero-ship-ulti').textContent = `Ульта: ${ship.ultiName}`;
-  el('hud-ulti-name').textContent = ship.ultiName;
+  el('hud-ulti-name').innerHTML = `${ICONS.bolt} ${ship.ultiName}`;
+
+  const previewCanvas = document.getElementById('ship-preview-canvas') as HTMLCanvasElement | null;
+  if (previewCanvas) {
+    drawShipPreview(previewCanvas, ship.id, game.theme);
+  }
 
   const titleEl = el('pilot-title-tag');
   if (profile.equippedTitle) {
@@ -308,6 +327,7 @@ function renderThemes(): void {
       game.setTheme(t);
       applyThemeToCSS(t);
       renderThemes();
+      refreshLobbyUI();
     };
     themeGrid.appendChild(btn);
   }
@@ -344,12 +364,13 @@ function renderHangar(): void {
       btn.onclick = () => {
         profile.selectedShip = ship.id;
         saveProfile(profile);
+        void saveCloudProfile(profile);
         renderHangar();
         refreshLobbyUI();
       };
     } else {
       btn.className = 'mini-btn';
-      btn.textContent = `ОТКРЫТЬ ${ship.cost} ✦`;
+      btn.innerHTML = `ОТКРЫТЬ ${ship.cost} ${ICONS.shard}`;
       btn.disabled = profile.shards < ship.cost;
       btn.onclick = () => {
         if (profile.shards >= ship.cost) {
@@ -357,6 +378,7 @@ function renderHangar(): void {
           profile.unlockedShips.push(ship.id);
           profile.selectedShip = ship.id;
           saveProfile(profile);
+          void saveCloudProfile(profile);
           sound.playLevelUp();
           renderHangar();
           refreshLobbyUI();
@@ -387,13 +409,14 @@ function renderHangar(): void {
       btn.textContent = 'МАКС.';
       btn.disabled = true;
     } else {
-      btn.textContent = `${cost} ✦`;
+      btn.innerHTML = `${cost} ${ICONS.shard}`;
       btn.disabled = profile.shards < cost;
       btn.onclick = () => {
         if (profile.shards >= cost) {
           profile.shards -= cost;
           profile.metaLevels[m.id] = lvl + 1;
           saveProfile(profile);
+          void saveCloudProfile(profile);
           sound.playLevelUp();
           renderHangar();
           refreshLobbyUI();
@@ -418,14 +441,15 @@ function renderQuests(): void {
   const bonusBtn = document.createElement('button');
   bonusBtn.className = 'mini-btn';
   if (profile.dailyClaimedToday) {
-    bonusBtn.textContent = 'ПОЛУЧЕНО ✓';
+    bonusBtn.textContent = 'ПОЛУЧЕНО';
     bonusBtn.disabled = true;
   } else {
-    bonusBtn.textContent = `ЗАБРАТЬ +${reward} ✦`;
+    bonusBtn.innerHTML = `ЗАБРАТЬ +${reward} ${ICONS.shard}`;
     bonusBtn.onclick = () => {
       profile.dailyClaimedToday = true;
       profile.shards += reward;
       saveProfile(profile);
+      void saveCloudProfile(profile);
       sound.playLevelUp();
       renderQuests();
       refreshLobbyUI();
@@ -450,21 +474,22 @@ function renderQuests(): void {
     const btn = document.createElement('button');
     btn.className = 'mini-btn';
     if (q.claimed) {
-      btn.textContent = '✓';
+      btn.textContent = 'ГОТОВО';
       btn.disabled = true;
     } else if (done) {
-      btn.textContent = `+${q.reward} ✦`;
+      btn.innerHTML = `+${q.reward} ${ICONS.shard}`;
       btn.onclick = () => {
         q.claimed = true;
         profile.shards += q.reward;
         saveProfile(profile);
+        void saveCloudProfile(profile);
         sound.playLevelUp();
         renderQuests();
         refreshLobbyUI();
       };
     } else {
       btn.className = 'mini-btn secondary';
-      btn.textContent = `${q.reward} ✦`;
+      btn.innerHTML = `${q.reward} ${ICONS.shard}`;
       btn.disabled = true;
     }
     item.appendChild(btn);
@@ -661,7 +686,10 @@ function handleGameOver(summary: {
 
   lastRunScore = summary.score;
   const baseUrl = `${window.location.origin}${window.location.pathname}`;
-  lastChallengeUrl = `${baseUrl}?challenge=${summary.score}&by=${encodeURIComponent(profile.callsign)}`;
+  const cleanCallsign = encodeURIComponent(profile.callsign.replace(/[^A-ZА-Я0-9_-]/gi, ''));
+  lastChallengeUrl = TG_BOT_APP
+    ? `https://t.me/${TG_BOT_APP}?startapp=chal_${summary.score}_${cleanCallsign}`
+    : `${baseUrl}?challenge=${summary.score}&by=${encodeURIComponent(profile.callsign)}`;
 
   el('go-title').textContent = summary.victory ? 'ПОБЕДА' : 'СИГНАЛ ПОТЕРЯН';
   el('new-record-badge').classList.toggle('hidden', !isNewRecord);
@@ -715,7 +743,13 @@ async function renderScoresModal(): Promise<void> {
     .join('');
 }
 
-async function shareOrCopy(title: string, text: string, url: string, btn: HTMLElement, resetText: string): Promise<void> {
+async function shareOrCopy(title: string, text: string, url: string, btn: HTMLElement, resetHtml: string): Promise<void> {
+  if (tgApp?.initData && tgApp.openTelegramLink) {
+    tgApp.openTelegramLink(
+      `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`
+    );
+    return;
+  }
   if (navigator.share) {
     try {
       await navigator.share({ title, text, url });
@@ -727,7 +761,7 @@ async function shareOrCopy(title: string, text: string, url: string, btn: HTMLEl
   try {
     await navigator.clipboard.writeText(`${text} ${url}`);
     btn.textContent = 'ССЫЛКА СКОПИРОВАНА!';
-    setTimeout(() => (btn.textContent = resetText), 1800);
+    setTimeout(() => (btn.innerHTML = resetHtml), 1800);
   } catch {
     // ignore
   }
@@ -766,6 +800,11 @@ function launchSoloMission(): void {
   game.setProfile(profile);
   titleScreen.classList.add('hidden');
   game.startNewGame();
+  const hint = document.getElementById('touch-hint-bar');
+  if (hint) {
+    hint.classList.remove('faded');
+    window.setTimeout(() => hint.classList.add('faded'), 4000);
+  }
 }
 
 el('btn-start').onclick = () => {
@@ -820,7 +859,7 @@ function renderTitlesModal(): void {
     item.innerHTML = `
       <div style="flex:1;">
         <div style="font-family:'Exo 2',sans-serif;font-weight:700;font-size:0.88rem;color:${a.color}">${a.titleTag} ${a.name}</div>
-        <div style="font-size:0.74rem;color:var(--text-dim);">${a.description} (+${a.reward} ✦)</div>
+        <div style="font-size:0.74rem;color:var(--text-dim);">${a.description} (+${a.reward} Оск.)</div>
       </div>
     `;
     const btn = document.createElement('button');
@@ -829,7 +868,7 @@ function renderTitlesModal(): void {
       btn.textContent = 'ЗАКРЫТО';
       btn.disabled = true;
     } else if (equipped) {
-      btn.textContent = 'НАДЕТО ✓';
+      btn.textContent = 'НАДЕТО';
       btn.disabled = true;
     } else {
       btn.textContent = 'НАДЕТЬ';
@@ -858,7 +897,7 @@ el('btn-capsule').onclick = () => {
   if (profile.capsuleClaimedToday) {
     res.textContent = 'Ты уже открыл капсулу сегодня! Заходи завтра за новым бонусом.';
     btn.disabled = true;
-    btn.textContent = 'ОТКРЫТО ✓';
+    btn.textContent = 'ОТКРЫТО';
   } else {
     res.textContent = 'Открой капсулу дня и получи случайный бонус!';
     btn.disabled = false;
@@ -949,13 +988,15 @@ el('btn-coop-create').onclick = () => {
 };
 el('btn-coop-invite').onclick = () => {
   const baseUrl = `${window.location.origin}${window.location.pathname}`;
-  const url = `${baseUrl}?room=${coop.roomCode}`;
+  const url = TG_BOT_APP
+    ? `https://t.me/${TG_BOT_APP}?startapp=room_${coop.roomCode}`
+    : `${baseUrl}?room=${coop.roomCode}`;
   void shareOrCopy(
     'AETHER RIFT — Кооп Онлайн',
     `Залетай ко мне в космический рогалик AETHER RIFT! Комната ${coop.roomCode}:`,
     url,
     el('btn-coop-invite'),
-    'ПРИГЛАСИТЬ ДРУГА'
+    `${ICONS.share} ПРИГЛАСИТЬ ДРУГА`
   );
 };
 el('btn-coop-start').onclick = () => {
@@ -1023,21 +1064,34 @@ el('btn-challenge-friend').onclick = () => {
     `Я набрал ${lastRunScore.toLocaleString('ru-RU')} очков в AETHER RIFT! Сможешь побить мой рекорд?`,
     lastChallengeUrl,
     el('btn-challenge-friend'),
-    'БРОСИТЬ ВЫЗОВ ДРУГУ'
+    `${ICONS.swords} БРОСИТЬ ВЫЗОВ ДРУГУ`
   );
 };
 
-// ==================== URL PARAMS: CHALLENGE & CO-OP ROOM ====================
+// ==================== URL PARAMS & TELEGRAM START_PARAM: CHALLENGE & CO-OP ROOM ====================
 const params = new URLSearchParams(window.location.search);
-const challengeScore = params.get('challenge');
-const challengeBy = params.get('by');
+const tgStartParam = tgApp?.initDataUnsafe?.start_param || params.get('startapp') || '';
+
+let challengeScore = params.get('challenge');
+let challengeBy = params.get('by');
+let roomParam = params.get('room');
+
+if (tgStartParam.startsWith('room_')) {
+  roomParam = tgStartParam.slice(5);
+} else if (tgStartParam.startsWith('chal_')) {
+  const parts = tgStartParam.slice(5).split('_');
+  if (parts.length >= 2) {
+    challengeScore = parts[0];
+    challengeBy = parts.slice(1).join('_');
+  }
+}
+
 if (challengeScore && challengeBy) {
   const banner = el('challenge-banner');
   banner.innerHTML = `${ICONS.swords} <b>${challengeBy}</b> бросает тебе вызов! Цель: <b>${Number(challengeScore).toLocaleString('ru-RU')}</b> очков`;
   banner.classList.remove('hidden');
 }
 
-const roomParam = params.get('room');
 if (roomParam) {
   el<HTMLInputElement>('coop-code-input').value = roomParam;
   coopScreen.classList.remove('hidden');
@@ -1046,6 +1100,7 @@ if (roomParam) {
 
 // ==================== INPUT LISTENERS ====================
 window.addEventListener('resize', () => game.resize());
+window.visualViewport?.addEventListener('resize', () => game.resize());
 
 window.addEventListener('keydown', (e) => {
   if (game.state === 'levelup' && activeUpgradeChoices.length > 0) {
@@ -1092,6 +1147,7 @@ if (isTouch) {
     'touchstart',
     (e) => {
       sound.init();
+      el('touch-hint-bar').classList.add('faded');
       e.preventDefault();
       for (let i = 0; i < e.changedTouches.length; i++) {
         const t = e.changedTouches[i];

@@ -60,14 +60,6 @@
             <span id="hud-mode-label">ВОЛНА</span>
             <strong id="hud-wave">01</strong>
           </div>
-          <div id="blitz-timer-pill" class="overclock-pill hidden">03:00</div>
-          <div id="overclock-pill" class="overclock-pill hidden">ПЕРЕГРУЗКА x2</div>
-          <div id="boss-bar-wrap" class="boss-bar-wrap hidden">
-            <div id="boss-name" class="boss-name">МОНОЛИТ ПУСТОТЫ</div>
-            <div class="boss-track">
-              <div id="boss-bar" class="boss-fill" style="width: 100%"></div>
-            </div>
-          </div>
         </div>
 
         <div class="hud-panel hud-score-panel">
@@ -75,13 +67,26 @@
             <span class="label">СЧЁТ</span>
             <strong id="hud-score" class="score-val">0</strong>
           </div>
+          <div class="hud-actions">
+            <button id="btn-mute" class="icon-btn" title="Звук"><span data-ico="soundOn"></span></button>
+            <button id="btn-pause" class="icon-btn" title="Пауза (Esc)"><span data-ico="pause"></span></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="hud-sub-bars">
+        <div class="status-pills-row">
+          <div id="blitz-timer-pill" class="overclock-pill hidden">03:00</div>
+          <div id="overclock-pill" class="overclock-pill hidden">ПЕРЕГРУЗКА x2</div>
           <div id="combo-badge" class="combo-badge hidden">
             <span id="combo-mult">x2</span>
             <small id="combo-count">10 УДАР.</small>
           </div>
-          <div class="hud-actions">
-            <button id="btn-mute" class="icon-btn" title="Звук"><span data-ico="soundOn"></span></button>
-            <button id="btn-pause" class="icon-btn" title="Пауза (Esc)"><span data-ico="pause"></span></button>
+        </div>
+        <div id="boss-bar-wrap" class="boss-bar-wrap hidden">
+          <div id="boss-name" class="boss-name">МОНОЛИТ ПУСТОТЫ</div>
+          <div class="boss-track">
+            <div id="boss-bar" class="boss-fill" style="width: 100%"></div>
           </div>
         </div>
       </div>
@@ -110,8 +115,10 @@
         <div class="pilot-header glass-bar">
           <div class="pilot-identity">
             <input id="pilot-callsign" class="callsign-input" maxlength="12" value="ПИЛОТ" title="Изменить позывной" />
-            <span id="pilot-rank" class="rank-pill">РЕКРУТ</span>
-            <span id="pilot-title-tag" class="rank-pill hidden"></span>
+            <div class="pilot-meta">
+              <span id="pilot-rank" class="rank-pill">РЕКРУТ</span>
+              <span id="pilot-title-tag" class="rank-pill hidden"></span>
+            </div>
           </div>
           <div class="header-right">
             <button id="btn-capsule" class="capsule-btn" title="Капсула дня"><span data-ico="capsule"></span></button>
@@ -139,9 +146,12 @@
 
           <div class="ship-showcase">
             <button id="btn-prev-ship" class="ship-arrow" title="Предыдущий">‹</button>
-            <div class="ship-showcase-info">
-              <strong id="hero-ship-name">ИСТРЕБИТЕЛЬ</strong>
-              <span id="hero-ship-ulti">Ульта: ГИПЕР-ЛУЧ</span>
+            <div class="ship-showcase-main">
+              <canvas id="ship-preview-canvas" width="52" height="52" class="ship-preview-canvas"></canvas>
+              <div class="ship-showcase-info">
+                <strong id="hero-ship-name">ИСТРЕБИТЕЛЬ</strong>
+                <span id="hero-ship-ulti">Ульта: ГИПЕР-ЛУЧ</span>
+              </div>
             </div>
             <button id="btn-next-ship" class="ship-arrow" title="Следующий">›</button>
           </div>
@@ -423,7 +433,7 @@
       <div id="stick-aim-base" class="stick-base stick-aim hidden">
         <div id="stick-aim-knob" class="stick-knob"></div>
       </div>
-      <div class="touch-hint-bar">Левый палец — полёт · Правый палец — прицел</div>
+      <div id="touch-hint-bar" class="touch-hint-bar">Левый палец — полёт · Правый палец — прицел</div>
     </div>
 
     <script type="module" src="/src/main.ts"></script>
