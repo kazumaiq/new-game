@@ -1,26 +1,57 @@
 import './style.css';
+import { trackEvent } from './analytics';
 import { sound } from './audio';
 import { AetherGame, drawShipPreview, HudSnapshot } from './game';
 import { IconKey, ICONS, iconHtml } from './icons';
-import { fetchCloudProfile, fetchGlobalLeaderboard, saveCloudProfile, submitGlobalScore } from './leaderboard';
-import { showRewardedAd } from './monetization';
+import {
+  fetchClanLeaderboard,
+  fetchCloudProfile,
+  fetchGlobalLeaderboard,
+  recordReferral,
+  saveCloudProfile,
+  submitGlobalScore,
+} from './leaderboard';
+import { initYandexSdk, openTelegramStarsInvoice, showRewardedAd } from './monetization';
 import { CoopNetwork } from './network';
 import {
   ACHIEVEMENTS,
+  applyCosmeticReward,
+  BOSS_RELICS,
+  EXPLOSION_DEFS,
+  FRAME_DEFS,
   getMetaCost,
   getPilotRank,
+  getSeasonInfo,
+  getSeasonTier,
+  getWeeklyMutator,
   loadProfile,
   META_UPGRADES,
+  sanitizeClanTag,
   saveProfile,
+  SEASON_PASS_TIERS,
+  SEASON_XP_PER_TIER,
   SHIP_CLASSES,
+  TRAIL_DEFS,
 } from './progression';
+import { HighlightRecorder } from './recorder';
 import { THEMES } from './themes';
-import { GameMode, GameSettings, HighScoreEntry, ThemePalette, UpgradeDef } from './types';
+import {
+  ExplosionStyleId,
+  FrameId,
+  GameMode,
+  GameSettings,
+  HighScoreEntry,
+  RelicId,
+  ThemePalette,
+  TrailId,
+  UpgradeDef,
+} from './types';
 import { UPGRADES } from './upgrades';
 
 const SCORES_KEY = 'aether_rift_scores_v1';
 const SETTINGS_KEY = 'aether_rift_settings_v1';
 const THEME_KEY = 'aether_rift_theme_v1';
+const TUTORIAL_KEY = 'aether_rift_tut_v1';
 
 const el = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -28,17 +59,21 @@ const canvas = el<HTMLCanvasElement>('game-canvas');
 const hudEl = el<HTMLDivElement>('hud');
 const titleScreen = el<HTMLDivElement>('title-screen');
 const hangarScreen = el<HTMLDivElement>('hangar-screen');
+const passScreen = el<HTMLDivElement>('pass-screen');
 const questsScreen = el<HTMLDivElement>('quests-screen');
 const coopScreen = el<HTMLDivElement>('coop-screen');
 const levelupScreen = el<HTMLDivElement>('levelup-screen');
+const relicScreen = el<HTMLDivElement>('relic-screen');
 const pauseScreen = el<HTMLDivElement>('pause-screen');
 const controlsScreen = el<HTMLDivElement>('controls-screen');
 const scoresScreen = el<HTMLDivElement>('scores-screen');
-const titlesScreen = el<HTMLDivElement>('titles-screen');
 const capsuleScreen = el<HTMLDivElement>('capsule-screen');
 const abyssScreen = el<HTMLDivElement>('abyss-screen');
 const reviveScreen = el<HTMLDivElement>('revive-screen');
 const gameoverScreen = el<HTMLDivElement>('gameover-screen');
+const tutorialScreen = el<HTMLDivElement>('tutorial-screen');
+const waveBanner = el<HTMLDivElement>('wave-banner');
+const touchLayer = el<HTMLDivElement>('touch-layer');
 
 // Внедряем все векторные SVG-иконки
 document.querySelectorAll<HTMLElement>('[data-ico]').forEach((node) => {
@@ -47,35 +82,26 @@ document.querySelectorAll<HTMLElement>('[data-ico]').forEach((node) => {
     node.innerHTML = iconHtml(key);
   }
 });
-const waveBanner = el<HTMLDivElement>('wave-banner');
-const touchLayer = el<HTMLDivElement>('touch-layer');
 
+const recorder = new HighlightRecorder();
 let activeUpgradeChoices: UpgradeDef[] = [];
+let activeRelicChoices: RelicId[] = [];
 let waveBannerTimer: number | null = null;
 let lastChallengeUrl = '';
 let lastRunScore = 0;
+let lastRunEarnedShards = 0;
+let doubledShardsUsed = false;
 let coopSyncTimer: number | null = null;
 let selectedSoloMode: GameMode = 'classic';
 let selectedOnlineMode: 'coop' | 'pvp' = 'coop';
-let activeLbTab: 'daily' | 'all' | 'local' = 'daily';
-
-const TUTORIAL_KEY = 'aether_rift_tut_v1';
-const tutorialScreen = el<HTMLDivElement>('tutorial-screen');
+let activeLbTab: 'daily' | 'all' | 'friends' | 'clans' | 'local' = 'daily';
 
 let profile = loadProfile();
 
-// Попытка синхронизации профиля из облака Supabase при старте
-void fetchCloudProfile(profile.callsign).then((cloud) => {
-  if (cloud && cloud.totalScore >= profile.totalScore) {
-    profile = { ...profile, ...cloud };
-    saveProfile(profile);
-    game.setProfile(profile);
-    refreshLobbyUI();
-  }
-});
-
 // Telegram Mini App integration
 const TG_BOT_APP = import.meta.env.VITE_TG_BOT_APP || '';
+const TG_STARS_PASS_INVOICE = import.meta.env.VITE_TG_STARS_PASS_INVOICE || '';
+
 const tgApp = (window as unknown as {
   Telegram?: {
     WebApp?: {
@@ -89,11 +115,13 @@ const tgApp = (window as unknown as {
       openTelegramLink?: (url: string) => void;
       initDataUnsafe?: {
         start_param?: string;
-        user?: { username?: string; first_name?: string };
+        user?: { id?: number | string; username?: string; first_name?: string };
       };
     };
   };
 }).Telegram?.WebApp;
+
+const tgInitData = tgApp?.initData || '';
 
 if (tgApp) {
   tgApp.ready();
@@ -103,11 +131,27 @@ if (tgApp) {
   tgApp.disableVerticalSwipes?.();
   tgApp.enableClosingConfirmation?.();
   const tgUser = tgApp.initDataUnsafe?.user;
+  if (tgUser?.id) {
+    profile.playerId = `tg_${String(tgUser.id)}`;
+  }
   if (tgUser && profile.callsign.startsWith('ПИЛОТ-')) {
     profile.callsign = (tgUser.username || tgUser.first_name || 'ПИЛОТ').slice(0, 14).toUpperCase();
-    saveProfile(profile);
   }
+  saveProfile(profile);
 }
+
+void initYandexSdk();
+trackEvent('session_start', { tg: Boolean(tgInitData) }, profile.playerId);
+
+// Синхронизация профиля из облака Supabase по неизменяемому playerId
+void fetchCloudProfile(profile.playerId, tgInitData).then((cloud) => {
+  if (cloud && cloud.totalScore >= profile.totalScore) {
+    profile = { ...profile, ...cloud };
+    saveProfile(profile);
+    game.setProfile(profile);
+    refreshLobbyUI();
+  }
+});
 
 // PWA Service Worker
 if ('serviceWorker' in navigator) {
@@ -153,7 +197,7 @@ function saveScore(entry: HighScoreEntry): boolean {
   const prevTop = list.length > 0 ? list[0].score : 0;
   list.push(entry);
   list.sort((a, b) => b.score - a.score);
-  localStorage.setItem(SCORES_KEY, JSON.stringify(list.slice(0, 10)));
+  localStorage.setItem(SCORES_KEY, JSON.stringify(list.slice(0, 15)));
   return entry.score > prevTop && entry.score > 0;
 }
 
@@ -172,7 +216,7 @@ function unlockAchievement(id: string): void {
   profile.shards += def.reward;
   if (!profile.equippedTitle) profile.equippedTitle = def.titleTag;
   saveProfile(profile);
-  void saveCloudProfile(profile);
+  void saveCloudProfile(profile, tgInitData);
   refreshLobbyUI();
   showWaveBanner(`ДОСТИЖЕНИЕ: ${def.name}`, `ТИТУЛ ${def.titleTag} +${def.reward} ОСКОЛКОВ`);
 }
@@ -195,6 +239,13 @@ const game = new AetherGame(canvas, {
     el('ad-progress-box').classList.add('hidden');
     el<HTMLButtonElement>('btn-revive-ad').disabled = false;
     reviveScreen.classList.remove('hidden');
+  },
+  onRelicChoice: (relics) => renderRelicChoice(relics),
+  onWaveReached: (wave) => {
+    if (wave >= 2) trackEvent('wave_reached', { wave, mode: selectedSoloMode }, profile.playerId);
+  },
+  onBossKilled: (wave) => {
+    trackEvent('boss_killed', { wave }, profile.playerId);
   },
 });
 
@@ -246,6 +297,7 @@ function startCoopMatch(role: 'host' | 'guest', onlineMode: 'coop' | 'pvp'): voi
   game.setMode(onlineMode);
   game.setProfile(profile);
   game.startNewGame();
+  trackEvent('run_start', { mode: onlineMode, ship: profile.selectedShip }, profile.playerId);
   stopCoopLoop();
   coopSyncTimer = window.setInterval(() => {
     if (game.state === 'playing' && coop.isConnected) {
@@ -265,6 +317,20 @@ function stopCoopLoop(): void {
 function refreshLobbyUI(): void {
   const callsignInput = el<HTMLInputElement>('pilot-callsign');
   callsignInput.value = profile.callsign;
+
+  const pilotHeader = el('pilot-header');
+  pilotHeader.classList.remove('frame-cyber', 'frame-gold', 'frame-void');
+  if (profile.selectedFrame !== 'default') {
+    pilotHeader.classList.add(`frame-${profile.selectedFrame}`);
+  }
+
+  const clanEl = el('pilot-clan-tag');
+  if (profile.clanTag) {
+    clanEl.textContent = `[${profile.clanTag}]`;
+    clanEl.classList.remove('hidden');
+  } else {
+    clanEl.classList.add('hidden');
+  }
 
   const rank = getPilotRank(profile.totalScore);
   const rankEl = el('pilot-rank');
@@ -295,24 +361,37 @@ function refreshLobbyUI(): void {
     titleEl.classList.add('hidden');
   }
 
+  const mutPill = el('mutator-desc-pill');
+  if (selectedSoloMode === 'mutator') {
+    const mut = getWeeklyMutator();
+    mutPill.innerHTML = `<b>${mut.name}</b> · ${mut.description}`;
+    mutPill.classList.remove('hidden');
+  } else {
+    mutPill.classList.add('hidden');
+  }
+
   el('btn-capsule').classList.toggle('claimed', profile.capsuleClaimedToday);
 
   const hasClaimable =
     !profile.dailyClaimedToday || profile.quests.some((q) => q.progress >= q.target && !q.claimed);
   el('quest-dot').classList.toggle('hidden', !hasClaimable);
+
+  const curTier = getSeasonTier(profile.seasonXp);
+  const hasPassClaim = SEASON_PASS_TIERS.some(
+    (t) =>
+      t.tier <= curTier &&
+      (!profile.claimedFreeTiers.includes(t.tier) ||
+        (profile.seasonPremium && !profile.claimedPremiumTiers.includes(t.tier)))
+  );
+  el('pass-dot').classList.toggle('hidden', !hasPassClaim);
 }
 
-el<HTMLInputElement>('pilot-callsign').addEventListener('change', async (e) => {
-  const val = (e.target as HTMLInputElement).value.trim().toUpperCase() || 'ПИЛОТ';
+el<HTMLInputElement>('pilot-callsign').addEventListener('change', (e) => {
+  const val = (e.target as HTMLInputElement).value.trim().toUpperCase().slice(0, 14) || 'ПИЛОТ';
   profile.callsign = val;
-  const cloud = await fetchCloudProfile(val);
-  if (cloud && cloud.totalScore > profile.totalScore) {
-    profile = { ...profile, ...cloud };
-    game.setProfile(profile);
-    refreshLobbyUI();
-  }
   saveProfile(profile);
-  void saveCloudProfile(profile);
+  void saveCloudProfile(profile, tgInitData);
+  refreshLobbyUI();
 });
 
 const themeGrid = el<HTMLDivElement>('theme-grid');
@@ -335,7 +414,7 @@ function renderThemes(): void {
 renderThemes();
 refreshLobbyUI();
 
-// ==================== HANGAR MODAL ====================
+// ==================== HANGAR & COSMETICS MODAL ====================
 function renderHangar(): void {
   el('hangar-shards').textContent = String(profile.shards);
   const shipsList = el('ships-list');
@@ -364,7 +443,7 @@ function renderHangar(): void {
       btn.onclick = () => {
         profile.selectedShip = ship.id;
         saveProfile(profile);
-        void saveCloudProfile(profile);
+        void saveCloudProfile(profile, tgInitData);
         renderHangar();
         refreshLobbyUI();
       };
@@ -378,7 +457,7 @@ function renderHangar(): void {
           profile.unlockedShips.push(ship.id);
           profile.selectedShip = ship.id;
           saveProfile(profile);
-          void saveCloudProfile(profile);
+          void saveCloudProfile(profile, tgInitData);
           sound.playLevelUp();
           renderHangar();
           refreshLobbyUI();
@@ -416,7 +495,7 @@ function renderHangar(): void {
           profile.shards -= cost;
           profile.metaLevels[m.id] = lvl + 1;
           saveProfile(profile);
-          void saveCloudProfile(profile);
+          void saveCloudProfile(profile, tgInitData);
           sound.playLevelUp();
           renderHangar();
           refreshLobbyUI();
@@ -428,7 +507,264 @@ function renderHangar(): void {
   }
 }
 
-// ==================== DAILY QUESTS MODAL ====================
+function renderCosmetics(): void {
+  el('hangar-shards').textContent = String(profile.shards);
+  const pane = el('hangar-cosmetics-pane');
+  pane.innerHTML = '';
+
+  const buildSection = <T extends string>(
+    title: string,
+    defs: Array<{ id: T; name: string; cost: number; previewColor: string; description: string }>,
+    unlockedList: T[],
+    selectedId: T,
+    onEquip: (id: T) => void,
+    onBuy: (id: T, cost: number) => void
+  ) => {
+    const secLabel = document.createElement('div');
+    secLabel.className = 'section-label';
+    secLabel.textContent = title;
+    pane.appendChild(secLabel);
+
+    const grid = document.createElement('div');
+    grid.className = 'cosmetic-grid';
+    for (const item of defs) {
+      const owned = unlockedList.includes(item.id);
+      const eq = selectedId === item.id;
+      const row = document.createElement('div');
+      row.className = `cosmetic-chip ${eq ? 'selected' : ''}`;
+      row.innerHTML = `
+        <div class="hangar-info">
+          <h4><span class="cosmetic-swatch" style="background:${item.previewColor}"></span>${item.name}</h4>
+          <p>${item.description}</p>
+        </div>
+      `;
+      const btn = document.createElement('button');
+      if (eq) {
+        btn.className = 'mini-btn secondary';
+        btn.textContent = 'НАДЕТО';
+        btn.disabled = true;
+      } else if (owned) {
+        btn.className = 'mini-btn';
+        btn.textContent = 'ВЫБРАТЬ';
+        btn.onclick = () => onEquip(item.id);
+      } else {
+        btn.className = 'mini-btn';
+        btn.innerHTML = `${item.cost} ${ICONS.shard}`;
+        btn.disabled = profile.shards < item.cost;
+        btn.onclick = () => onBuy(item.id, item.cost);
+      }
+      row.appendChild(btn);
+      grid.appendChild(row);
+    }
+    pane.appendChild(grid);
+  };
+
+  buildSection<TrailId>(
+    'СЛЕДЫ ДВИГАТЕЛЯ',
+    TRAIL_DEFS,
+    profile.unlockedTrails,
+    profile.selectedTrail,
+    (id) => {
+      profile.selectedTrail = id;
+      saveProfile(profile);
+      void saveCloudProfile(profile, tgInitData);
+      renderCosmetics();
+    },
+    (id, cost) => {
+      if (profile.shards >= cost) {
+        profile.shards -= cost;
+        profile.unlockedTrails.push(id);
+        profile.selectedTrail = id;
+        sound.playLevelUp();
+        saveProfile(profile);
+        void saveCloudProfile(profile, tgInitData);
+        refreshLobbyUI();
+        renderCosmetics();
+      }
+    }
+  );
+
+  buildSection<ExplosionStyleId>(
+    'СТИЛЬ ВЗРЫВОВ ВРАГОВ',
+    EXPLOSION_DEFS,
+    profile.unlockedExplosions,
+    profile.selectedExplosion,
+    (id) => {
+      profile.selectedExplosion = id;
+      saveProfile(profile);
+      void saveCloudProfile(profile, tgInitData);
+      renderCosmetics();
+    },
+    (id, cost) => {
+      if (profile.shards >= cost) {
+        profile.shards -= cost;
+        profile.unlockedExplosions.push(id);
+        profile.selectedExplosion = id;
+        sound.playLevelUp();
+        saveProfile(profile);
+        void saveCloudProfile(profile, tgInitData);
+        refreshLobbyUI();
+        renderCosmetics();
+      }
+    }
+  );
+
+  buildSection<FrameId>(
+    'РАМКА ПРОФИЛЯ',
+    FRAME_DEFS,
+    profile.unlockedFrames,
+    profile.selectedFrame,
+    (id) => {
+      profile.selectedFrame = id;
+      saveProfile(profile);
+      void saveCloudProfile(profile, tgInitData);
+      refreshLobbyUI();
+      renderCosmetics();
+    },
+    (id, cost) => {
+      if (profile.shards >= cost) {
+        profile.shards -= cost;
+        profile.unlockedFrames.push(id);
+        profile.selectedFrame = id;
+        sound.playLevelUp();
+        saveProfile(profile);
+        void saveCloudProfile(profile, tgInitData);
+        refreshLobbyUI();
+        renderCosmetics();
+      }
+    }
+  );
+}
+
+// ==================== SEASON BATTLE PASS ====================
+function renderSeasonPass(): void {
+  const s = getSeasonInfo();
+  const tier = getSeasonTier(profile.seasonXp);
+  const xpIntoTier = profile.seasonXp % SEASON_XP_PER_TIER;
+  el('pass-season-title').textContent = s.name;
+  el('pass-days-left').textContent = `${s.daysLeft} ДН.`;
+  el('pass-tier-label').textContent = `УРОВЕНЬ ${tier} / 10`;
+  el('pass-xp-text').textContent = tier >= 10 ? 'МАКС.' : `${xpIntoTier} / ${SEASON_XP_PER_TIER} XP`;
+  el('pass-xp-bar').style.width = tier >= 10 ? '100%' : `${(xpIntoTier / SEASON_XP_PER_TIER) * 100}%`;
+
+  const premBtn = el<HTMLButtonElement>('btn-buy-pass-prem');
+  if (profile.seasonPremium) {
+    premBtn.innerHTML = `${ICONS.crown} АКТИВЕН`;
+    premBtn.disabled = true;
+  } else if (TG_STARS_PASS_INVOICE && tgInitData) {
+    premBtn.innerHTML = `${ICONS.crown} ПРЕМИУМ (STARS)`;
+    premBtn.disabled = false;
+  } else {
+    premBtn.innerHTML = `${ICONS.crown} ПРЕМИУМ 400 ${ICONS.shard}`;
+    premBtn.disabled = profile.shards < 400;
+  }
+
+  const list = el('pass-tiers-list');
+  list.innerHTML = '';
+
+  for (const t of SEASON_PASS_TIERS) {
+    const reached = tier >= t.tier;
+    const freeClaimed = profile.claimedFreeTiers.includes(t.tier);
+    const premClaimed = profile.claimedPremiumTiers.includes(t.tier);
+
+    const row = document.createElement('div');
+    row.className = `pass-tier-row ${reached ? 'reached' : ''}`;
+    row.innerHTML = `
+      <div class="pass-tier-head">
+        <span>ЭТАП ${t.tier}</span>
+        <span>${t.tier * SEASON_XP_PER_TIER} XP</span>
+      </div>
+    `;
+
+    const tracks = document.createElement('div');
+    tracks.className = 'pass-tracks';
+
+    const freeBox = document.createElement('div');
+    freeBox.className = 'pass-track-box';
+    freeBox.innerHTML = `<div>БЕСПЛАТНО: <b>${t.freeLabel}</b></div>`;
+    const freeBtn = document.createElement('button');
+    freeBtn.className = freeClaimed ? 'mini-btn secondary' : 'mini-btn';
+    if (freeClaimed) {
+      freeBtn.textContent = 'ПОЛУЧЕНО';
+      freeBtn.disabled = true;
+    } else if (reached) {
+      freeBtn.textContent = 'ЗАБРАТЬ';
+      freeBtn.onclick = () => {
+        profile.claimedFreeTiers.push(t.tier);
+        applyCosmeticReward(profile, t.freeReward);
+        sound.playLevelUp();
+        saveProfile(profile);
+        void saveCloudProfile(profile, tgInitData);
+        trackEvent('pass_tier_claimed', { tier: t.tier, track: 'free' }, profile.playerId);
+        refreshLobbyUI();
+        renderSeasonPass();
+      };
+    } else {
+      freeBtn.textContent = 'ЗАКРЫТО';
+      freeBtn.disabled = true;
+    }
+    freeBox.appendChild(freeBtn);
+
+    const premBox = document.createElement('div');
+    premBox.className = 'pass-track-box prem';
+    premBox.innerHTML = `<div>ПРЕМИУМ: <b>${t.premLabel}</b></div>`;
+    const premTrackBtn = document.createElement('button');
+    premTrackBtn.className = premClaimed ? 'mini-btn secondary' : 'mini-btn';
+    if (premClaimed) {
+      premTrackBtn.textContent = 'ПОЛУЧЕНО';
+      premTrackBtn.disabled = true;
+    } else if (reached && profile.seasonPremium) {
+      premTrackBtn.textContent = 'ЗАБРАТЬ';
+      premTrackBtn.onclick = () => {
+        profile.claimedPremiumTiers.push(t.tier);
+        applyCosmeticReward(profile, t.premReward);
+        sound.playLevelUp();
+        saveProfile(profile);
+        void saveCloudProfile(profile, tgInitData);
+        trackEvent('pass_tier_claimed', { tier: t.tier, track: 'premium' }, profile.playerId);
+        refreshLobbyUI();
+        renderSeasonPass();
+      };
+    } else {
+      premTrackBtn.textContent = profile.seasonPremium ? 'ЗАКРЫТО' : 'НУЖЕН ПРЕМИУМ';
+      premTrackBtn.disabled = true;
+    }
+    premBox.appendChild(premTrackBtn);
+
+    tracks.appendChild(freeBox);
+    tracks.appendChild(premBox);
+    row.appendChild(tracks);
+    list.appendChild(row);
+  }
+}
+
+el('btn-buy-pass-prem').onclick = async () => {
+  if (profile.seasonPremium) return;
+  if (TG_STARS_PASS_INVOICE && tgInitData) {
+    const res = await openTelegramStarsInvoice(TG_STARS_PASS_INVOICE);
+    if (res === 'paid') {
+      profile.seasonPremium = true;
+      sound.playLevelUp();
+      saveProfile(profile);
+      void saveCloudProfile(profile, tgInitData);
+      refreshLobbyUI();
+      renderSeasonPass();
+      return;
+    }
+    if (res === 'cancelled' || res === 'failed') return;
+  }
+  if (profile.shards >= 400) {
+    profile.shards -= 400;
+    profile.seasonPremium = true;
+    sound.playLevelUp();
+    saveProfile(profile);
+    void saveCloudProfile(profile, tgInitData);
+    refreshLobbyUI();
+    renderSeasonPass();
+  }
+};
+
+// ==================== DAILY QUESTS & TITLES ====================
 function renderQuests(): void {
   const bonusBox = el('daily-bonus-box');
   const reward = 35 + profile.streakDays * 15;
@@ -448,8 +784,9 @@ function renderQuests(): void {
     bonusBtn.onclick = () => {
       profile.dailyClaimedToday = true;
       profile.shards += reward;
+      profile.seasonXp += 45;
       saveProfile(profile);
-      void saveCloudProfile(profile);
+      void saveCloudProfile(profile, tgInitData);
       sound.playLevelUp();
       renderQuests();
       refreshLobbyUI();
@@ -481,8 +818,9 @@ function renderQuests(): void {
       btn.onclick = () => {
         q.claimed = true;
         profile.shards += q.reward;
+        profile.seasonXp += 60;
         saveProfile(profile);
-        void saveCloudProfile(profile);
+        void saveCloudProfile(profile, tgInitData);
         sound.playLevelUp();
         renderQuests();
         refreshLobbyUI();
@@ -496,6 +834,108 @@ function renderQuests(): void {
     qList.appendChild(item);
   }
 }
+
+function renderTitlesModal(): void {
+  const list = el('titles-list');
+  list.innerHTML = '';
+  for (const a of ACHIEVEMENTS) {
+    const unlocked = profile.unlockedAchievements.includes(a.id);
+    const equipped = profile.equippedTitle === a.titleTag;
+    const item = document.createElement('div');
+    item.className = 'quest-item';
+    item.innerHTML = `
+      <div style="flex:1;">
+        <div style="font-family:'Exo 2',sans-serif;font-weight:700;font-size:0.88rem;color:${a.color}">${a.titleTag} ${a.name}</div>
+        <div style="font-size:0.74rem;color:var(--text-dim);">${a.description} (+${a.reward} Оск.)</div>
+      </div>
+    `;
+    const btn = document.createElement('button');
+    btn.className = equipped ? 'mini-btn secondary' : 'mini-btn';
+    if (!unlocked) {
+      btn.textContent = 'ЗАКРЫТО';
+      btn.disabled = true;
+    } else if (equipped) {
+      btn.textContent = 'НАДЕТО';
+      btn.disabled = true;
+    } else {
+      btn.textContent = 'НАДЕТЬ';
+      btn.onclick = () => {
+        profile.equippedTitle = a.titleTag;
+        saveProfile(profile);
+        void saveCloudProfile(profile, tgInitData);
+        renderTitlesModal();
+        refreshLobbyUI();
+      };
+    }
+    item.appendChild(btn);
+    list.appendChild(item);
+  }
+}
+
+// ==================== SOCIAL / CLANS / FRIENDS ====================
+function renderSocialPane(): void {
+  el<HTMLInputElement>('clan-tag-input').value = profile.clanTag || '';
+  el('ref-code-display').textContent = profile.referralCode;
+  el('ref-count-display').textContent = String(profile.referralsCount);
+
+  const chipWrap = el('friends-chip-list');
+  chipWrap.innerHTML = '';
+  if (profile.friends.length === 0) {
+    chipWrap.innerHTML = '<span style="font-size:0.75rem;color:var(--text-dim);">Добавь позывной друга для таблицы «Друзья»</span>';
+    return;
+  }
+  for (const f of profile.friends) {
+    const chip = document.createElement('button');
+    chip.className = 'upg-chip';
+    chip.style.cursor = 'pointer';
+    chip.title = 'Удалить из друзей';
+    chip.textContent = `${f} ×`;
+    chip.onclick = () => {
+      profile.friends = profile.friends.filter((x) => x !== f);
+      saveProfile(profile);
+      void saveCloudProfile(profile, tgInitData);
+      renderSocialPane();
+    };
+    chipWrap.appendChild(chip);
+  }
+}
+
+el('btn-save-clan').onclick = () => {
+  const tag = sanitizeClanTag(el<HTMLInputElement>('clan-tag-input').value);
+  profile.clanTag = tag;
+  el<HTMLInputElement>('clan-tag-input').value = tag;
+  saveProfile(profile);
+  void saveCloudProfile(profile, tgInitData);
+  refreshLobbyUI();
+  const btn = el('btn-save-clan');
+  btn.textContent = 'СОХРАНЕНО!';
+  window.setTimeout(() => (btn.textContent = 'СОХРАНИТЬ'), 1400);
+};
+
+el('btn-add-friend').onclick = () => {
+  const inp = el<HTMLInputElement>('friend-add-input');
+  const val = inp.value.trim().toUpperCase().slice(0, 14);
+  if (!val || val === profile.callsign || profile.friends.includes(val)) return;
+  profile.friends = [...profile.friends, val].slice(0, 20);
+  inp.value = '';
+  saveProfile(profile);
+  void saveCloudProfile(profile, tgInitData);
+  renderSocialPane();
+};
+
+el('btn-invite-ref').onclick = () => {
+  const baseUrl = `${window.location.origin}${window.location.pathname}`;
+  const url = TG_BOT_APP
+    ? `https://t.me/${TG_BOT_APP}?startapp=ref_${profile.referralCode}`
+    : `${baseUrl}?ref=${profile.referralCode}`;
+  void shareOrCopy(
+    'AETHER RIFT — Приглашение в бой',
+    `Залетай в космический рогалик AETHER RIFT по моему коду ${profile.referralCode} и забери +60 Осколков на старт:`,
+    url,
+    el('btn-invite-ref'),
+    `${ICONS.share} ОТПРАВИТЬ ССЫЛКУ`
+  );
+};
 
 // ==================== SETTINGS & HUD ====================
 function renderSettingsInto(container: HTMLElement): void {
@@ -545,9 +985,18 @@ function renderHud(hud: HudSnapshot): void {
   el('hp-text').textContent = `${hud.hp}/${hud.maxHp}`;
   el('lvl-label').textContent = `УР. ${hud.level}`;
   el('xp-bar').style.width = `${Math.min(100, (hud.xp / hud.xpToNext) * 100)}%`;
-  el('hud-mode-label').textContent = hud.mode === 'pvp' ? 'ДУЭЛЬ' : hud.mode === 'daily' ? 'ДЕНЬ' : 'ВОЛНА';
+  el('hud-mode-label').textContent =
+    hud.mode === 'pvp' ? 'ДУЭЛЬ' : hud.mode === 'daily' ? 'ДЕНЬ' : hud.mode === 'mutator' ? 'МУТАТОР' : 'ВОЛНА';
   el('hud-wave').textContent = hud.mode === 'pvp' ? '1v1' : String(hud.wave).padStart(2, '0');
   el('hud-score').textContent = hud.score.toLocaleString('ru-RU');
+
+  const biomePill = el('biome-pill');
+  if (hud.state === 'playing' && hud.wave >= 4 && hud.mode !== 'pvp') {
+    biomePill.textContent = hud.biomeName;
+    biomePill.classList.remove('hidden');
+  } else {
+    biomePill.classList.add('hidden');
+  }
 
   const blitzPill = el('blitz-timer-pill');
   if (hud.mode === 'blitz') {
@@ -627,6 +1076,39 @@ function selectUpgrade(id: string): void {
   game.applyUpgrade(id);
 }
 
+function renderRelicChoice(relics: RelicId[]): void {
+  activeRelicChoices = relics;
+  const container = el('relic-cards');
+  container.innerHTML = '';
+
+  relics.forEach((rId, idx) => {
+    const def = BOSS_RELICS.find((b) => b.id === rId);
+    if (!def) return;
+    const card = document.createElement('button');
+    card.className = 'upgrade-card relic-card';
+    card.innerHTML = `
+      <div class="card-top">
+        <span class="card-icon">${def.icon}</span>
+        <span class="card-tag">${def.tag} · [${idx + 1}]</span>
+      </div>
+      <h3>${def.name}</h3>
+      <p>${def.description}</p>
+      <div class="card-rank">НАЖМИ ЧТОБЫ ВЫБРАТЬ</div>
+    `;
+    card.onclick = () => pickRelic(def.id);
+    container.appendChild(card);
+  });
+
+  relicScreen.classList.remove('hidden');
+}
+
+function pickRelic(id: RelicId): void {
+  relicScreen.classList.add('hidden');
+  activeRelicChoices = [];
+  trackEvent('relic_picked', { relic: id }, profile.playerId);
+  game.applyRelic(id);
+}
+
 function showWaveBanner(title: string, subtitle: string): void {
   el('wave-banner-title').textContent = title;
   el('wave-banner-sub').textContent = subtitle;
@@ -643,12 +1125,17 @@ function handleGameOver(summary: {
   kills: number;
   maxCombo: number;
   shards: number;
+  durationSec: number;
   victory?: boolean;
   mode: GameMode;
   upgrades: Record<string, number>;
 }): void {
   stopCoopLoop();
+  if (recorder.isRecording) recorder.stop();
+
+  const seasonXpGain = Math.max(25, Math.round(summary.kills * 2 + summary.wave * 35 + (summary.victory ? 180 : 0)));
   profile.shards += summary.shards;
+  profile.seasonXp += seasonXpGain;
   profile.totalKills += summary.kills;
   profile.totalScore += summary.score;
   profile.totalRuns += 1;
@@ -659,17 +1146,35 @@ function handleGameOver(summary: {
     if (q.metric === 'combo') q.progress = Math.max(q.progress, summary.maxCombo);
   }
   saveProfile(profile);
-  void saveCloudProfile(profile);
+  void saveCloudProfile(profile, tgInitData);
   refreshLobbyUI();
 
   const shipDef = SHIP_CLASSES.find((s) => s.id === profile.selectedShip) || SHIP_CLASSES[0];
-  void submitGlobalScore({
-    callsign: profile.callsign,
-    score: summary.score,
-    wave: summary.wave,
-    mode: summary.mode,
-    ship: shipDef.name,
-  });
+  void submitGlobalScore(
+    {
+      player_id: profile.playerId,
+      callsign: profile.callsign,
+      clan_tag: profile.clanTag,
+      score: summary.score,
+      wave: summary.wave,
+      mode: summary.mode,
+      ship: shipDef.name,
+      duration_sec: summary.durationSec,
+    },
+    tgInitData
+  );
+
+  trackEvent(
+    'run_end',
+    {
+      score: summary.score,
+      wave: summary.wave,
+      durationSec: summary.durationSec,
+      victory: Boolean(summary.victory),
+      mode: summary.mode,
+    },
+    profile.playerId
+  );
 
   const isNewRecord = saveScore({
     score: summary.score,
@@ -685,6 +1190,9 @@ function handleGameOver(summary: {
   }
 
   lastRunScore = summary.score;
+  lastRunEarnedShards = summary.shards;
+  doubledShardsUsed = false;
+
   const baseUrl = `${window.location.origin}${window.location.pathname}`;
   const cleanCallsign = encodeURIComponent(profile.callsign.replace(/[^A-ZА-Я0-9_-]/gi, ''));
   lastChallengeUrl = TG_BOT_APP
@@ -694,6 +1202,12 @@ function handleGameOver(summary: {
   el('go-title').textContent = summary.victory ? 'ПОБЕДА' : 'СИГНАЛ ПОТЕРЯН';
   el('new-record-badge').classList.toggle('hidden', !isNewRecord);
   el('go-shards').textContent = `+${summary.shards}`;
+  el('go-ad-status').classList.add('hidden');
+
+  const dblBtn = el<HTMLButtonElement>('btn-double-shards');
+  dblBtn.disabled = summary.shards <= 0;
+  dblBtn.innerHTML = `${ICONS.video} x2 ОСКОЛКИ ЗА РЕКЛАМУ (+${summary.shards})`;
+
   el('go-score').textContent = summary.score.toLocaleString('ru-RU');
   el('go-wave').textContent = String(summary.wave);
   el('go-kills').textContent = String(summary.kills);
@@ -730,13 +1244,41 @@ async function renderScoresModal(): Promise<void> {
     return;
   }
 
+  if (activeLbTab === 'clans') {
+    container.innerHTML = '<p style="color:var(--text-dim);padding:20px;">Загрузка эскадрилий...</p>';
+    const clans = await fetchClanLeaderboard(profile.clanTag);
+    if (clans.length === 0) {
+      container.innerHTML =
+        '<p style="color:var(--text-dim);padding:20px;">Кланов пока нет! Укажи тег эскадрильи в разделе «Онлайн → Клан и Друзья».</p>';
+      return;
+    }
+    container.innerHTML = clans
+      .map(
+        (c, i) => `
+        <div class="score-row" style="${c.isSelf ? 'border:1px solid var(--primary);' : ''}">
+          <span>#${i + 1} · <b>[${c.clanTag}]</b> · Участн.: ${c.members} · Волна ${c.bestWave}</span>
+          <strong>${c.totalScore.toLocaleString('ru-RU')}</strong>
+        </div>`
+      )
+      .join('');
+    return;
+  }
+
   container.innerHTML = '<p style="color:var(--text-dim);padding:20px;">Загрузка рейтинга...</p>';
-  const rows = await fetchGlobalLeaderboard(activeLbTab === 'daily' ? 'daily' : 'all', profile.callsign);
+  const filterMode = activeLbTab === 'friends' ? 'friends' : activeLbTab === 'daily' ? 'daily' : 'all';
+  const rows = await fetchGlobalLeaderboard(filterMode, profile.playerId, profile.callsign, profile.friends);
+  if (rows.length === 0) {
+    container.innerHTML =
+      activeLbTab === 'friends'
+        ? '<p style="color:var(--text-dim);padding:20px;">Добавь позывные друзей в меню «Онлайн → Клан и Друзья», чтобы видеть их рекорды здесь.</p>'
+        : '<p style="color:var(--text-dim);padding:20px;">Таблица пока пуста — будь первым пилотом на сервере!</p>';
+    return;
+  }
   container.innerHTML = rows
     .map(
       (r, i) => `
       <div class="score-row" style="${r.isSelf ? 'border:1px solid var(--primary);' : ''}">
-        <span>#${i + 1} · <b>${r.callsign}</b> · Волна ${r.wave} (${r.ship})</span>
+        <span>#${i + 1} · ${r.clan_tag ? `[${r.clan_tag}] ` : ''}<b>${r.callsign}</b> · Волна ${r.wave} (${r.ship})</span>
         <strong>${r.score.toLocaleString('ru-RU')}</strong>
       </div>`
     )
@@ -744,7 +1286,7 @@ async function renderScoresModal(): Promise<void> {
 }
 
 async function shareOrCopy(title: string, text: string, url: string, btn: HTMLElement, resetHtml: string): Promise<void> {
-  if (tgApp?.initData && tgApp.openTelegramLink) {
+  if (tgInitData && tgApp?.openTelegramLink) {
     tgApp.openTelegramLink(
       `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`
     );
@@ -767,12 +1309,68 @@ async function shareOrCopy(title: string, text: string, url: string, btn: HTMLEl
   }
 }
 
+function rollCapsuleReward(): string {
+  const roll = Math.random();
+  if (roll < 0.35) {
+    profile.shards += 45;
+    return 'Награда: +45 Эфирных Осколков!';
+  }
+  if (roll < 0.6) {
+    profile.shards += 75;
+    return 'ДЖЕКПОТ: +75 Эфирных Осколков!';
+  }
+  if (roll < 0.8) {
+    profile.nextRunBuff = 'shield';
+    return 'Награда: Стартовый Силовой Щит на следующий бой!';
+  }
+  profile.nextRunBuff = 'xp';
+  return 'Награда: +50% Опыта на следующий бой!';
+}
+
 // ==================== BUTTON BINDINGS ====================
 document.querySelectorAll('#mode-tabs .mode-tab').forEach((btn) => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('#mode-tabs .mode-tab').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
     selectedSoloMode = (btn.getAttribute('data-mode') as GameMode) || 'classic';
+    refreshLobbyUI();
+  });
+});
+
+document.querySelectorAll('#hangar-tabs .mode-tab').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#hangar-tabs .mode-tab').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = btn.getAttribute('data-hangar');
+    const isCosm = tab === 'cosmetics';
+    el('hangar-main-pane').classList.toggle('hidden', isCosm);
+    el('hangar-cosmetics-pane').classList.toggle('hidden', !isCosm);
+    if (isCosm) renderCosmetics();
+    else renderHangar();
+  });
+});
+
+document.querySelectorAll('#quests-tabs .mode-tab').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#quests-tabs .mode-tab').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = btn.getAttribute('data-qt');
+    const isTitles = tab === 'titles';
+    el('quests-pane').classList.toggle('hidden', isTitles);
+    el('titles-pane').classList.toggle('hidden', !isTitles);
+    if (isTitles) renderTitlesModal();
+    else renderQuests();
+  });
+});
+
+document.querySelectorAll('#coop-tabs .mode-tab').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#coop-tabs .mode-tab').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    const isSocial = btn.getAttribute('data-coop-tab') === 'social';
+    el('coop-online-pane').classList.toggle('hidden', isSocial);
+    el('coop-social-pane').classList.toggle('hidden', !isSocial);
+    if (isSocial) renderSocialPane();
   });
 });
 
@@ -788,7 +1386,7 @@ document.querySelectorAll('#lb-tabs .mode-tab').forEach((btn) => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('#lb-tabs .mode-tab').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
-    activeLbTab = (btn.getAttribute('data-lb') as 'daily' | 'all' | 'local') || 'daily';
+    activeLbTab = (btn.getAttribute('data-lb') as typeof activeLbTab) || 'daily';
     void renderScoresModal();
   });
 });
@@ -800,6 +1398,7 @@ function launchSoloMission(): void {
   game.setProfile(profile);
   titleScreen.classList.add('hidden');
   game.startNewGame();
+  trackEvent('run_start', { mode: selectedSoloMode, ship: profile.selectedShip }, profile.playerId);
   const hint = document.getElementById('touch-hint-bar');
   if (hint) {
     hint.classList.remove('faded');
@@ -827,10 +1426,17 @@ el('btn-hangar').onclick = () => {
 };
 el('btn-close-hangar').onclick = () => hangarScreen.classList.add('hidden');
 
+el('btn-pass').onclick = () => {
+  renderSeasonPass();
+  passScreen.classList.remove('hidden');
+};
+el('btn-close-pass').onclick = () => passScreen.classList.add('hidden');
+
 el('btn-quests').onclick = () => {
   renderQuests();
   questsScreen.classList.remove('hidden');
 };
+el('btn-close-quests').onclick = () => questsScreen.classList.add('hidden');
 
 const cycleUnlockedShip = (dir: number) => {
   const unlocked = SHIP_CLASSES.filter((s) => profile.unlockedShips.includes(s.id));
@@ -848,60 +1454,22 @@ const cycleUnlockedShip = (dir: number) => {
 el('btn-prev-ship').onclick = () => cycleUnlockedShip(-1);
 el('btn-next-ship').onclick = () => cycleUnlockedShip(1);
 
-function renderTitlesModal(): void {
-  const list = el('titles-list');
-  list.innerHTML = '';
-  for (const a of ACHIEVEMENTS) {
-    const unlocked = profile.unlockedAchievements.includes(a.id);
-    const equipped = profile.equippedTitle === a.titleTag;
-    const item = document.createElement('div');
-    item.className = 'quest-item';
-    item.innerHTML = `
-      <div style="flex:1;">
-        <div style="font-family:'Exo 2',sans-serif;font-weight:700;font-size:0.88rem;color:${a.color}">${a.titleTag} ${a.name}</div>
-        <div style="font-size:0.74rem;color:var(--text-dim);">${a.description} (+${a.reward} Оск.)</div>
-      </div>
-    `;
-    const btn = document.createElement('button');
-    btn.className = equipped ? 'mini-btn secondary' : 'mini-btn';
-    if (!unlocked) {
-      btn.textContent = 'ЗАКРЫТО';
-      btn.disabled = true;
-    } else if (equipped) {
-      btn.textContent = 'НАДЕТО';
-      btn.disabled = true;
-    } else {
-      btn.textContent = 'НАДЕТЬ';
-      btn.onclick = () => {
-        profile.equippedTitle = a.titleTag;
-        saveProfile(profile);
-        void saveCloudProfile(profile);
-        renderTitlesModal();
-        refreshLobbyUI();
-      };
-    }
-    item.appendChild(btn);
-    list.appendChild(item);
-  }
-}
-
-el('btn-titles').onclick = () => {
-  renderTitlesModal();
-  titlesScreen.classList.remove('hidden');
-};
-el('btn-close-titles').onclick = () => titlesScreen.classList.add('hidden');
-
 el('btn-capsule').onclick = () => {
   const btn = el<HTMLButtonElement>('btn-open-capsule');
+  const adBtn = el<HTMLButtonElement>('btn-capsule-ad');
   const res = el('capsule-result');
   if (profile.capsuleClaimedToday) {
-    res.textContent = 'Ты уже открыл капсулу сегодня! Заходи завтра за новым бонусом.';
+    res.textContent = 'Бесплатная капсула дня уже открыта!';
     btn.disabled = true;
     btn.textContent = 'ОТКРЫТО';
+    adBtn.classList.toggle('hidden', profile.extraCapsuleAdToday);
+    adBtn.disabled = profile.extraCapsuleAdToday;
+    adBtn.innerHTML = `${ICONS.video} ЕЩЁ КАПСУЛА ЗА РЕКЛАМУ`;
   } else {
     res.textContent = 'Открой капсулу дня и получи случайный бонус!';
     btn.disabled = false;
     btn.textContent = 'ОТКРЫТЬ КАПСУЛУ';
+    adBtn.classList.add('hidden');
   }
   capsuleScreen.classList.remove('hidden');
 };
@@ -910,29 +1478,41 @@ el('btn-close-capsule').onclick = () => capsuleScreen.classList.add('hidden');
 el('btn-open-capsule').onclick = () => {
   if (profile.capsuleClaimedToday) return;
   profile.capsuleClaimedToday = true;
-  const roll = Math.random();
-  let msg = '';
-  if (roll < 0.35) {
-    profile.shards += 45;
-    msg = 'Награда: +45 Эфирных Осколков!';
-  } else if (roll < 0.6) {
-    profile.shards += 75;
-    msg = 'ДЖЕКПОТ: +75 Эфирных Осколков!';
-  } else if (roll < 0.8) {
-    profile.nextRunBuff = 'shield';
-    msg = 'Награда: Стартовый Силовой Щит на следующий бой!';
-  } else {
-    profile.nextRunBuff = 'xp';
-    msg = 'Награда: +50% Опыта на следующий бой!';
-  }
+  const msg = rollCapsuleReward();
   sound.playLevelUp();
   saveProfile(profile);
-  void saveCloudProfile(profile);
+  void saveCloudProfile(profile, tgInitData);
   refreshLobbyUI();
   el('capsule-result').textContent = msg;
   const btn = el<HTMLButtonElement>('btn-open-capsule');
   btn.disabled = true;
   btn.textContent = 'ПОЛУЧЕНО';
+  if (!profile.extraCapsuleAdToday) {
+    el('btn-capsule-ad').classList.remove('hidden');
+  }
+};
+
+el('btn-capsule-ad').onclick = async () => {
+  if (profile.extraCapsuleAdToday) return;
+  const adBtn = el<HTMLButtonElement>('btn-capsule-ad');
+  adBtn.disabled = true;
+  const ok = await showRewardedAd((sec) => {
+    adBtn.textContent = sec > 0 ? `РЕКЛАМА: ${sec} СЕК...` : 'ОТКРЫВАЕМ...';
+  });
+  if (ok) {
+    profile.extraCapsuleAdToday = true;
+    const msg = rollCapsuleReward();
+    sound.playLevelUp();
+    saveProfile(profile);
+    void saveCloudProfile(profile, tgInitData);
+    trackEvent('ad_watched', { slot: 'extra_capsule' }, profile.playerId);
+    refreshLobbyUI();
+    el('capsule-result').textContent = msg;
+    adBtn.classList.add('hidden');
+  } else {
+    adBtn.disabled = false;
+    adBtn.innerHTML = `${ICONS.video} ЕЩЁ КАПСУЛА ЗА РЕКЛАМУ`;
+  }
 };
 
 el('btn-revive-ad').onclick = async () => {
@@ -947,6 +1527,7 @@ el('btn-revive-ad').onclick = async () => {
   });
 
   if (ok) {
+    trackEvent('ad_watched', { slot: 'revive' }, profile.playerId);
     reviveScreen.classList.add('hidden');
     game.revivePlayer();
   } else {
@@ -959,7 +1540,7 @@ el('btn-revive-shards').onclick = () => {
   if (profile.shards < 50) return;
   profile.shards -= 50;
   saveProfile(profile);
-  void saveCloudProfile(profile);
+  void saveCloudProfile(profile, tgInitData);
   refreshLobbyUI();
   reviveScreen.classList.add('hidden');
   game.revivePlayer();
@@ -970,6 +1551,34 @@ el('btn-revive-skip').onclick = () => {
   game.declineRevive();
 };
 
+el('btn-double-shards').onclick = async () => {
+  if (doubledShardsUsed || lastRunEarnedShards <= 0) return;
+  const dblBtn = el<HTMLButtonElement>('btn-double-shards');
+  const statusBox = el('go-ad-status');
+  dblBtn.disabled = true;
+  statusBox.classList.remove('hidden');
+  statusBox.textContent = 'Загрузка рекламного блока...';
+
+  const ok = await showRewardedAd((sec) => {
+    statusBox.textContent = sec > 0 ? `Спонсорский блок: осталось ${sec} сек...` : 'Удваиваем Осколки!';
+  });
+
+  if (ok) {
+    doubledShardsUsed = true;
+    profile.shards += lastRunEarnedShards;
+    saveProfile(profile);
+    void saveCloudProfile(profile, tgInitData);
+    trackEvent('ad_watched', { slot: 'double_shards', extra: lastRunEarnedShards }, profile.playerId);
+    refreshLobbyUI();
+    el('go-shards').textContent = `+${lastRunEarnedShards * 2}`;
+    statusBox.textContent = `Бонус +${lastRunEarnedShards} Осколков зачислен!`;
+    dblBtn.textContent = 'НАГРАДА УДВОЕНА';
+  } else {
+    statusBox.textContent = 'Не удалось загрузить рекламу. Попробуй ещё раз.';
+    dblBtn.disabled = false;
+  }
+};
+
 el('btn-go-abyss').onclick = () => {
   abyssScreen.classList.add('hidden');
   game.continueToAbyss();
@@ -978,9 +1587,11 @@ el('btn-claim-win').onclick = () => {
   abyssScreen.classList.add('hidden');
   game.finishVictory();
 };
-el('btn-close-quests').onclick = () => questsScreen.classList.add('hidden');
 
-el('btn-coop').onclick = () => coopScreen.classList.remove('hidden');
+el('btn-coop').onclick = () => {
+  renderSocialPane();
+  coopScreen.classList.remove('hidden');
+};
 el('btn-close-coop').onclick = () => coopScreen.classList.add('hidden');
 
 el('btn-coop-create').onclick = () => {
@@ -1022,6 +1633,35 @@ el('btn-scores').onclick = () => {
 };
 el('btn-close-scores').onclick = () => scoresScreen.classList.add('hidden');
 
+el('btn-rec').onclick = () => {
+  const btn = el('btn-rec');
+  if (recorder.isRecording) {
+    recorder.stop();
+    return;
+  }
+  const started = recorder.start(
+    canvas,
+    (sec) => {
+      if (sec === 10) {
+        btn.classList.add('rec-active');
+        showWaveBanner('ЗАПИСЬ КЛИПА', 'ИДЁТ ЗАХВАТ ЛУЧШЕГО МОМЕНТА (10 СЕК)');
+      }
+    },
+    (status) => {
+      btn.classList.remove('rec-active');
+      if (status === 'saved' || status === 'shared') {
+        trackEvent('clip_recorded', { status }, profile.playerId);
+        showWaveBanner('КЛИП СОХРАНЁН', status === 'shared' ? 'ОТПРАВЛЕНО ДРУЗЬЯМ!' : 'ВИДЕО СКАЧАНО НА УСТРОЙСТВО');
+      } else if (status === 'unsupported') {
+        showWaveBanner('ЗАПИСЬ НЕДОСТУПНА', 'ЭТОТ БРАУЗЕР НЕ ПОДДЕРЖИВАЕТ ЗАХВАТ ХОЛСТА');
+      }
+    }
+  );
+  if (started) {
+    btn.classList.add('rec-active');
+  }
+};
+
 el('btn-pause').onclick = () => {
   renderSettingsInto(el('pause-settings'));
   game.togglePause();
@@ -1029,6 +1669,7 @@ el('btn-pause').onclick = () => {
 el('btn-resume').onclick = () => game.togglePause();
 el('btn-quit').onclick = () => {
   stopCoopLoop();
+  if (recorder.isRecording) recorder.stop();
   pauseScreen.classList.add('hidden');
   game.returnToTitle();
   titleScreen.classList.remove('hidden');
@@ -1052,6 +1693,7 @@ el('btn-retry').onclick = () => {
   gameoverScreen.classList.add('hidden');
   game.setProfile(profile);
   game.startNewGame();
+  trackEvent('run_start', { mode: game.mode, ship: profile.selectedShip }, profile.playerId);
 };
 el('btn-go-menu').onclick = () => {
   gameoverScreen.classList.add('hidden');
@@ -1068,13 +1710,14 @@ el('btn-challenge-friend').onclick = () => {
   );
 };
 
-// ==================== URL PARAMS & TELEGRAM START_PARAM: CHALLENGE & CO-OP ROOM ====================
+// ==================== URL PARAMS & TELEGRAM START_PARAM: CHALLENGE, ROOM & REFERRAL ====================
 const params = new URLSearchParams(window.location.search);
 const tgStartParam = tgApp?.initDataUnsafe?.start_param || params.get('startapp') || '';
 
 let challengeScore = params.get('challenge');
 let challengeBy = params.get('by');
 let roomParam = params.get('room');
+let refParam = params.get('ref');
 
 if (tgStartParam.startsWith('room_')) {
   roomParam = tgStartParam.slice(5);
@@ -1083,6 +1726,24 @@ if (tgStartParam.startsWith('room_')) {
   if (parts.length >= 2) {
     challengeScore = parts[0];
     challengeBy = parts.slice(1).join('_');
+  }
+} else if (tgStartParam.startsWith('ref_')) {
+  refParam = tgStartParam.slice(4);
+}
+
+if (refParam) {
+  const cleanRef = refParam.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+  if (cleanRef && cleanRef !== profile.referralCode && !profile.referredBy) {
+    profile.referredBy = cleanRef;
+    profile.shards += 60;
+    saveProfile(profile);
+    void saveCloudProfile(profile, tgInitData);
+    void recordReferral(cleanRef, profile.playerId);
+    trackEvent('referral_claimed', { code: cleanRef }, profile.playerId);
+    refreshLobbyUI();
+    const banner = el('challenge-banner');
+    banner.innerHTML = `${ICONS.gift} По приглашению <b>${cleanRef}</b> зачислено <b>+60 Осколков</b>!`;
+    banner.classList.remove('hidden');
   }
 }
 
@@ -1103,6 +1764,12 @@ window.addEventListener('resize', () => game.resize());
 window.visualViewport?.addEventListener('resize', () => game.resize());
 
 window.addEventListener('keydown', (e) => {
+  if (!relicScreen.classList.contains('hidden') && activeRelicChoices.length > 0) {
+    if (e.key === '1' && activeRelicChoices[0]) pickRelic(activeRelicChoices[0]);
+    if (e.key === '2' && activeRelicChoices[1]) pickRelic(activeRelicChoices[1]);
+    if (e.key === '3' && activeRelicChoices[2]) pickRelic(activeRelicChoices[2]);
+    return;
+  }
   if (game.state === 'levelup' && activeUpgradeChoices.length > 0) {
     if (e.key === '1' && activeUpgradeChoices[0]) selectUpgrade(activeUpgradeChoices[0].id);
     if (e.key === '2' && activeUpgradeChoices[1]) selectUpgrade(activeUpgradeChoices[1].id);

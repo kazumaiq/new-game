@@ -1,6 +1,23 @@
 export type GameState = 'title' | 'playing' | 'paused' | 'levelup' | 'gameover';
 
-export type GameMode = 'classic' | 'blitz' | 'daily' | 'coop' | 'pvp';
+export type GameMode = 'classic' | 'blitz' | 'daily' | 'mutator' | 'coop' | 'pvp';
+
+export type RelicId = 'relic_blackhole' | 'relic_dashnova' | 'relic_echo';
+
+export type TrailId = 'neon' | 'plasma' | 'prism' | 'flame' | 'lightning';
+
+export type ExplosionStyleId = 'shards' | 'rings' | 'supernova';
+
+export type FrameId = 'default' | 'cyber' | 'gold' | 'void';
+
+export type BiomeId = 'deep' | 'cryo' | 'rift';
+
+export interface GhostSample {
+  t: number;
+  x: number;
+  y: number;
+  a: number;
+}
 
 export type EnemyKind = 'swarmer' | 'bomber' | 'splitter' | 'mini' | 'sniper' | 'shielder' | 'spawner' | 'warden' | 'boss';
 

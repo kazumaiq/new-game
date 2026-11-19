@@ -68,6 +68,7 @@
             <strong id="hud-score" class="score-val">0</strong>
           </div>
           <div class="hud-actions">
+            <button id="btn-rec" class="icon-btn" title="Записать 10с клип"><span data-ico="film"></span></button>
             <button id="btn-mute" class="icon-btn" title="Звук"><span data-ico="soundOn"></span></button>
             <button id="btn-pause" class="icon-btn" title="Пауза (Esc)"><span data-ico="pause"></span></button>
           </div>
@@ -76,6 +77,7 @@
 
       <div class="hud-sub-bars">
         <div class="status-pills-row">
+          <div id="biome-pill" class="biome-pill hidden">КРИО-ТУМАННОСТЬ</div>
           <div id="blitz-timer-pill" class="overclock-pill hidden">03:00</div>
           <div id="overclock-pill" class="overclock-pill hidden">ПЕРЕГРУЗКА x2</div>
           <div id="combo-badge" class="combo-badge hidden">
@@ -112,11 +114,12 @@
     <div id="title-screen" class="overlay lobby-overlay">
       <div class="lobby-shell">
         <!-- Верхняя панель -->
-        <div class="pilot-header glass-bar">
+        <div id="pilot-header" class="pilot-header glass-bar">
           <div class="pilot-identity">
             <input id="pilot-callsign" class="callsign-input" maxlength="12" value="ПИЛОТ" title="Изменить позывной" />
             <div class="pilot-meta">
               <span id="pilot-rank" class="rank-pill">РЕКРУТ</span>
+              <span id="pilot-clan-tag" class="rank-pill clan-pill hidden"></span>
               <span id="pilot-title-tag" class="rank-pill hidden"></span>
             </div>
           </div>
@@ -138,11 +141,14 @@
           <h1 class="game-title">AETHER <span>RIFT</span></h1>
           <div class="goal-pill"><span data-ico="quests"></span> ЦЕЛЬ: ПРОЙДИ 10 ВОЛН И УНИЧТОЖЬ БОССА</div>
 
-          <div id="mode-tabs" class="mode-tabs">
+          <div id="mode-tabs" class="mode-tabs mode-tabs-4">
             <button class="mode-tab active" data-mode="classic"><span data-ico="infinity"></span> 10 ВОЛН</button>
-            <button class="mode-tab" data-mode="blitz"><span data-ico="clock"></span> БЛИЦ 3:00</button>
+            <button class="mode-tab" data-mode="blitz"><span data-ico="clock"></span> БЛИЦ</button>
             <button class="mode-tab" data-mode="daily"><span data-ico="calendar"></span> ДЕНЬ</button>
+            <button class="mode-tab" data-mode="mutator"><span data-ico="mutator"></span> МУТАТОР</button>
           </div>
+
+          <div id="mutator-desc-pill" class="mutator-desc-pill hidden"></div>
 
           <div class="ship-showcase">
             <button id="btn-prev-ship" class="ship-arrow" title="Предыдущий">‹</button>
@@ -170,14 +176,15 @@
             <span class="dock-ico" data-ico="hangar"></span>
             <span>Ангар</span>
           </button>
+          <button id="btn-pass" class="dock-btn btn-notify-wrap">
+            <span class="dock-ico" data-ico="pass"></span>
+            <span>Сезон</span>
+            <span id="pass-dot" class="notify-dot hidden"></span>
+          </button>
           <button id="btn-quests" class="dock-btn btn-notify-wrap">
             <span class="dock-ico" data-ico="quests"></span>
             <span>Задания</span>
             <span id="quest-dot" class="notify-dot hidden"></span>
-          </button>
-          <button id="btn-titles" class="dock-btn">
-            <span class="dock-ico" data-ico="medal"></span>
-            <span>Титулы</span>
           </button>
           <button id="btn-coop" class="dock-btn">
             <span class="dock-ico" data-ico="coop"></span>
@@ -191,57 +198,130 @@
       </div>
     </div>
 
-    <!-- АНГАР -->
+    <!-- АНГАР + КОСМЕТИКА -->
     <div id="hangar-screen" class="overlay hidden">
       <div class="glass-panel modal-scroll cyber-frame">
         <div class="modal-top-bar">
           <h2><span data-ico="hangar"></span> АНГАР</h2>
           <div class="shards-pill"><span data-ico="shard"></span><strong id="hangar-shards">0</strong></div>
         </div>
-        <div class="section-label">КЛАССЫ КОРАБЛЕЙ</div>
-        <div id="ships-list" class="ships-list"></div>
-        <div class="section-label" style="margin-top: 18px">ПОСТОЯННЫЕ УЛУЧШЕНИЯ</div>
-        <div id="meta-list" class="meta-list"></div>
+        <div class="mode-tabs mode-tabs-2" id="hangar-tabs" style="margin-bottom: 14px">
+          <button class="mode-tab active" data-hangar="main">КОРАБЛИ И БАЗА</button>
+          <button class="mode-tab" data-hangar="cosmetics">КОСМЕТИКА</button>
+        </div>
+        <div id="hangar-main-pane">
+          <div class="section-label">КЛАССЫ КОРАБЛЕЙ</div>
+          <div id="ships-list" class="ships-list"></div>
+          <div class="section-label" style="margin-top: 18px">ПОСТОЯННЫЕ УЛУЧШЕНИЯ</div>
+          <div id="meta-list" class="meta-list"></div>
+        </div>
+        <div id="hangar-cosmetics-pane" class="hidden"></div>
         <button id="btn-close-hangar" class="btn-primary" style="width: 100%; margin-top: 16px">ГОТОВО</button>
       </div>
     </div>
 
-    <!-- ЗАДАНИЯ ДНЯ -->
+    <!-- СЕЗОННЫЙ ПРОПУСК (BATTLE PASS) -->
+    <div id="pass-screen" class="overlay hidden">
+      <div class="glass-panel modal-scroll cyber-frame">
+        <div class="modal-top-bar">
+          <h2><span data-ico="pass"></span> <span id="pass-season-title">СЕЗОН 1</span></h2>
+          <span id="pass-days-left" class="rank-pill">30 ДН.</span>
+        </div>
+        <div class="daily-bonus-box">
+          <div style="flex: 1">
+            <div style="display: flex; justify-content: space-between; font-family: 'Exo 2', sans-serif; font-weight: 700; font-size: 0.88rem;">
+              <span id="pass-tier-label">УРОВЕНЬ 0 / 10</span>
+              <span id="pass-xp-text">0 / 350 XP</span>
+            </div>
+            <div class="quest-prog-track"><div id="pass-xp-bar" class="quest-prog-fill" style="width: 0%"></div></div>
+          </div>
+          <button id="btn-buy-pass-prem" class="mini-btn"><span data-ico="crown"></span> ПРЕМИУМ 400</button>
+        </div>
+        <div id="pass-tiers-list" class="quests-list"></div>
+        <button id="btn-close-pass" class="btn-primary" style="width: 100%; margin-top: 14px">НАЗАД</button>
+      </div>
+    </div>
+
+    <!-- ЗАДАНИЯ ДНЯ И ТИТУЛЫ -->
     <div id="quests-screen" class="overlay hidden">
       <div class="glass-panel compact-panel modal-scroll cyber-frame">
-        <h2><span data-ico="quests"></span> ЗАДАНИЯ ДНЯ</h2>
-        <div id="daily-bonus-box" class="daily-bonus-box"></div>
-        <div id="quests-list" class="quests-list"></div>
+        <h2><span data-ico="quests"></span> ЗАДАНИЯ И ТИТУЛЫ</h2>
+        <div class="mode-tabs mode-tabs-2" id="quests-tabs" style="margin-bottom: 14px">
+          <button class="mode-tab active" data-qt="quests">ЗАДАНИЯ ДНЯ</button>
+          <button class="mode-tab" data-qt="titles">ТИТУЛЫ</button>
+        </div>
+        <div id="quests-pane">
+          <div id="daily-bonus-box" class="daily-bonus-box"></div>
+          <div id="quests-list" class="quests-list"></div>
+        </div>
+        <div id="titles-pane" class="hidden">
+          <div id="titles-list" class="quests-list"></div>
+        </div>
         <button id="btn-close-quests" class="btn-primary" style="width: 100%; margin-top: 14px">НАЗАД</button>
       </div>
     </div>
 
-    <!-- ОНЛАЙН КООП / ДУЭЛЬ -->
+    <!-- ОНЛАЙН / КЛАН И РЕФЕРАЛЫ -->
     <div id="coop-screen" class="overlay hidden">
       <div class="glass-panel compact-panel modal-scroll cyber-frame">
         <h2><span data-ico="coop"></span> ОНЛАЙН-СЕКТОР</h2>
-        <p class="coop-desc">
-          Играйте вдвоём на одной арене в реальном времени! Создай комнату и отправь ссылку другу.
-        </p>
-        <div id="coop-status" class="coop-status">Не подключено</div>
+        <div class="mode-tabs mode-tabs-2" id="coop-tabs" style="margin-bottom: 14px">
+          <button class="mode-tab active" data-coop-tab="online">КООП / ДУЭЛЬ</button>
+          <button class="mode-tab" data-coop-tab="social">КЛАН И ДРУЗЬЯ</button>
+        </div>
 
-        <div class="coop-controls">
-          <div class="mode-tabs" id="online-mode-tabs">
-            <button class="mode-tab active" data-online="coop"><span data-ico="coop"></span> КООП</button>
-            <button class="mode-tab" data-online="pvp"><span data-ico="swords"></span> ДУЭЛЬ 1х1</button>
+        <div id="coop-online-pane">
+          <p class="coop-desc">
+            Играйте вдвоём на одной арене в реальном времени! Создай комнату и отправь ссылку другу.
+          </p>
+          <div id="coop-status" class="coop-status">Не подключено</div>
+
+          <div class="coop-controls">
+            <div class="mode-tabs" id="online-mode-tabs">
+              <button class="mode-tab active" data-online="coop"><span data-ico="coop"></span> КООП</button>
+              <button class="mode-tab" data-online="pvp"><span data-ico="swords"></span> ДУЭЛЬ 1х1</button>
+            </div>
+            <button id="btn-coop-create" class="btn-primary" style="width: 100%">СОЗДАТЬ КОМНАТУ</button>
+            <button id="btn-coop-invite" class="btn-secondary hidden" style="width: 100%">
+              <span data-ico="share"></span> ПРИГЛАСИТЬ ДРУГА
+            </button>
+            <button id="btn-coop-start" class="btn-primary hidden" style="width: 100%">
+              <span data-ico="play"></span> ЗАПУСТИТЬ БОЙ
+            </button>
+
+            <div class="coop-divider">ИЛИ ВОЙТИ ПО КОДУ</div>
+            <div class="coop-join-row">
+              <input id="coop-code-input" class="code-input" maxlength="6" placeholder="Код (напр. 4821)" />
+              <button id="btn-coop-join" class="btn-secondary">ВОЙТИ</button>
+            </div>
           </div>
-          <button id="btn-coop-create" class="btn-primary" style="width: 100%">СОЗДАТЬ КОМНАТУ</button>
-          <button id="btn-coop-invite" class="btn-secondary hidden" style="width: 100%">
-            <span data-ico="share"></span> ПРИГЛАСИТЬ ДРУГА
-          </button>
-          <button id="btn-coop-start" class="btn-primary hidden" style="width: 100%">
-            <span data-ico="play"></span> ЗАПУСТИТЬ БОЙ
-          </button>
+        </div>
 
-          <div class="coop-divider">ИЛИ ВОЙТИ ПО КОДУ</div>
-          <div class="coop-join-row">
-            <input id="coop-code-input" class="code-input" maxlength="6" placeholder="Код (напр. 4821)" />
-            <button id="btn-coop-join" class="btn-secondary">ВОЙТИ</button>
+        <div id="coop-social-pane" class="hidden">
+          <div class="section-label"><span data-ico="clan"></span> ЭСКАДРИЛЬЯ (КЛАН)</div>
+          <div class="coop-join-row" style="margin-bottom: 14px">
+            <input id="clan-tag-input" class="code-input" maxlength="5" placeholder="Тег (напр. NOVA)" />
+            <button id="btn-save-clan" class="btn-secondary">СОХРАНИТЬ</button>
+          </div>
+
+          <div class="section-label"><span data-ico="friends"></span> ДРУЗЬЯ В РЕЙТИНГЕ</div>
+          <div class="coop-join-row" style="margin-bottom: 8px">
+            <input id="friend-add-input" class="code-input" maxlength="14" placeholder="Позывной друга" />
+            <button id="btn-add-friend" class="btn-secondary">ДОБАВИТЬ</button>
+          </div>
+          <div id="friends-chip-list" class="go-upgrades" style="margin-bottom: 14px"></div>
+
+          <div class="daily-bonus-box" style="flex-direction: column; align-items: stretch; gap: 10px">
+            <div>
+              <strong style="font-family: 'Exo 2', sans-serif"><span data-ico="gift"></span> ПРИГЛАСИ ДРУГА (+60 ОСК.)</strong>
+              <div style="font-size: 0.78rem; color: var(--text-dim); margin-top: 2px">
+                Твой код: <b id="ref-code-display" style="color: var(--primary)">---</b> · Приглашено:
+                <b id="ref-count-display">0</b>
+              </div>
+            </div>
+            <button id="btn-invite-ref" class="btn-primary" style="width: 100%">
+              <span data-ico="share"></span> ОТПРАВИТЬ ССЫЛКУ
+            </button>
           </div>
         </div>
 
@@ -258,6 +338,18 @@
           <p>Нажми на карточку или клавиши <b>1</b>, <b>2</b>, <b>3</b></p>
         </div>
         <div id="upgrade-cards" class="upgrade-cards"></div>
+      </div>
+    </div>
+
+    <!-- РЕЛИКВИЯ БОССА (ВОЛНА 5) -->
+    <div id="relic-screen" class="overlay hidden">
+      <div class="modal-wrap">
+        <div class="modal-header">
+          <div class="modal-kicker">НАГРАДА ЗА ПОБЕДУ НАД БОССОМ</div>
+          <h2>ВЫБЕРИ РЕЛИКВИЮ</h2>
+          <p>Уникальный пассивный эффект до конца забега</p>
+        </div>
+        <div id="relic-cards" class="upgrade-cards"></div>
       </div>
     </div>
 
@@ -313,9 +405,11 @@
     <div id="scores-screen" class="overlay hidden">
       <div class="glass-panel compact-panel modal-scroll cyber-frame">
         <h2><span data-ico="trophy"></span> ЗАЛ СЛАВЫ</h2>
-        <div class="mode-tabs" id="lb-tabs" style="margin-bottom: 14px">
-          <button class="mode-tab active" data-lb="daily">ЗАБЕГ ДНЯ</button>
-          <button class="mode-tab" data-lb="all">МИРОВОЙ</button>
+        <div class="mode-tabs mode-tabs-5" id="lb-tabs" style="margin-bottom: 14px">
+          <button class="mode-tab active" data-lb="daily">ДЕНЬ</button>
+          <button class="mode-tab" data-lb="all">МИР</button>
+          <button class="mode-tab" data-lb="friends">ДРУЗЬЯ</button>
+          <button class="mode-tab" data-lb="clans">КЛАНЫ</button>
           <button class="mode-tab" data-lb="local">МОИ</button>
         </div>
         <div id="scores-list" class="scores-list"></div>
@@ -329,6 +423,7 @@
         <div id="new-record-badge" class="new-record hidden">НОВЫЙ РЕКОРД</div>
         <h2 id="go-title">СИГНАЛ ПОТЕРЯН</h2>
         <div class="earned-shards-banner">Получено <strong id="go-shards">+0</strong> Осколков</div>
+        <div id="go-ad-status" class="coop-status hidden"></div>
         <div class="stats-grid">
           <div class="stat-box">
             <span>СЧЁТ</span>
@@ -350,18 +445,12 @@
         <div id="go-upgrades" class="go-upgrades"></div>
         <div class="cta-col">
           <button id="btn-retry" class="btn-primary"><span data-ico="play"></span> ЕЩЁ РАЗ</button>
+          <button id="btn-double-shards" class="btn-secondary">
+            <span data-ico="video"></span> x2 ОСКОЛКИ ЗА РЕКЛАМУ
+          </button>
           <button id="btn-challenge-friend" class="btn-secondary"><span data-ico="swords"></span> БРОСИТЬ ВЫЗОВ ДРУГУ</button>
           <button id="btn-go-menu" class="btn-ghost">В ГЛАВНОЕ МЕНЮ</button>
         </div>
-      </div>
-    </div>
-
-    <!-- ДОСТИЖЕНИЯ И ТИТУЛЫ -->
-    <div id="titles-screen" class="overlay hidden">
-      <div class="glass-panel compact-panel modal-scroll cyber-frame">
-        <h2><span data-ico="medal"></span> ДОСТИЖЕНИЯ И ТИТУЛЫ</h2>
-        <div id="titles-list" class="quests-list"></div>
-        <button id="btn-close-titles" class="btn-primary" style="width: 100%; margin-top: 14px">НАЗАД</button>
       </div>
     </div>
 
@@ -372,6 +461,9 @@
         <h2><span data-ico="capsule"></span> КАПСУЛА ДНЯ</h2>
         <p id="capsule-result" class="coop-desc">Открой капсулу дня и получи случайный бонус.</p>
         <button id="btn-open-capsule" class="btn-primary" style="width: 100%">ОТКРЫТЬ КАПСУЛУ</button>
+        <button id="btn-capsule-ad" class="btn-secondary hidden" style="width: 100%; margin-top: 8px">
+          <span data-ico="video"></span> ЕЩЁ КАПСУЛА ЗА РЕКЛАМУ
+        </button>
         <button id="btn-close-capsule" class="btn-ghost" style="margin-top: 10px">ЗАКРЫТЬ</button>
       </div>
     </div>

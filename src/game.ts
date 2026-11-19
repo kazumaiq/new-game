@@ -1,9 +1,10 @@
 import { sound } from './audio';
 import { NetRole, RemotePlayerState } from './network';
-import { PlayerProfile, SHIP_CLASSES, ShipClassId } from './progression';
+import { getWeeklyMutator, PlayerProfile, SHIP_CLASSES, ShipClassId } from './progression';
 import { THEMES } from './themes';
 import { UPGRADES } from './upgrades';
 import {
+  BiomeId,
   Bullet,
   Enemy,
   EnemyKind,
@@ -11,12 +12,14 @@ import {
   GameMode,
   GameSettings,
   GameState,
+  GhostSample,
   LightningArc,
   Particle,
   Player,
   PlayerStats,
   PowerUp,
   PowerUpKind,
+  RelicId,
   Shockwave,
   ThemePalette,
   UpgradeDef,
@@ -42,6 +45,9 @@ export interface HudSnapshot {
   shieldReady: boolean;
   mode: GameMode;
   blitzTimer: number;
+  biomeName: string;
+  mutatorName: string;
+  activeRelic: RelicId | null;
   boss: { name: string; hp: number; maxHp: number } | null;
   acquiredUpgrades: Record<string, number>;
 }
@@ -55,6 +61,7 @@ export interface GameCallbacks {
     kills: number;
     maxCombo: number;
     shards: number;
+    durationSec: number;
     victory?: boolean;
     mode: GameMode;
     upgrades: Record<string, number>;
@@ -64,6 +71,16 @@ export interface GameCallbacks {
   onAchievement?: (id: string) => void;
   onAbyssChoice?: () => void;
   onReviveOffer?: () => void;
+  onRelicChoice?: (relics: RelicId[]) => void;
+  onWaveReached?: (wave: number) => void;
+  onBossKilled?: (wave: number) => void;
+}
+
+const DAILY_GHOST_KEY = 'aether_rift_daily_ghost_v1';
+
+function localTodayStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 interface Star {
@@ -171,6 +188,25 @@ export class AetherGame {
   private powerZone: { x: number; y: number; radius: number; life: number } | null = null;
   private courier: { x: number; y: number; vx: number; vy: number; hp: number; maxHp: number; life: number } | null = null;
   private meteors: Array<{ x: number; y: number; timer: number; radius: number }> = [];
+  private runDurationSec = 0;
+  private currentBiome: BiomeId = 'deep';
+  private cryoZones: Array<{ x: number; y: number; radius: number }> = [];
+  private gravityWells: Array<{ x: number; y: number; radius: number; strength: number }> = [];
+  private activeMutatorName = '';
+  private mutatorEnemySpeedMult = 1;
+  private mutatorEnemyHpMult = 1;
+  private mutatorEliteMult = 1;
+  private activeRelic: RelicId | null = null;
+  private relicOffered = false;
+  private blackHoles: Array<{ x: number; y: number; life: number; maxLife: number; radius: number }> = [];
+  private droneFireTimer = 0;
+  private swarmTimer = 0;
+  private bladeTempestTimer = 0;
+  private slashArcs: Array<{ x: number; y: number; angle: number; radius: number; life: number; maxLife: number }> = [];
+  private ghostSamples: GhostSample[] = [];
+  private ghostRecordTimer = 0;
+  private savedGhost: GhostSample[] = [];
+  private savedGhostScore = 0;
   private coopRole: NetRole = 'none';
   private remotePlayer: RemotePlayerState = {
     connected: false,
@@ -394,6 +430,8 @@ export class AetherGame {
       this.callbacks.onWaveBanner('БЛИЦ 3:00', 'УСКОРЕННАЯ ПРОКАЧКА · ВЫЖИВИ 3 МИНУТЫ');
     } else if (this.mode === 'daily') {
       this.callbacks.onWaveBanner('ЗАБЕГ ДНЯ', 'ОДИНАКОВЫЕ ВОЛНЫ ДЛЯ ВСЕХ ПИЛОТОВ');
+    } else if (this.mode === 'mutator') {
+      this.callbacks.onWaveBanner(this.activeMutatorName || 'МУТАТОР НЕДЕЛИ', 'ОСОБЫЕ ПРАВИЛА СЕКТОРА');
     } else {
       this.callbacks.onWaveBanner('ВОЛНА 01', 'ПРОРЫВ ПЕРИМЕТРА СЕКТОРА');
     }
@@ -494,6 +532,35 @@ export class AetherGame {
     if (this.stats.phantomDash) {
       this.phantomBlast(this.player.x, this.player.y);
     }
+    if (this.activeRelic === 'relic_dashnova') {
+      for (let k = 0; k < 6; k++) {
+        const a = (k * Math.PI * 2) / 6;
+        this.bullets.push({
+          x: this.player.x,
+          y: this.player.y,
+          vx: Math.cos(a) * this.stats.projectileSpeed * 0.9,
+          vy: Math.sin(a) * this.stats.projectileSpeed * 0.9,
+          radius: 5.5,
+          damage: this.stats.damage * 1.25,
+          isEnemy: false,
+          pierceLeft: 2,
+          ricochetLeft: 0,
+          life: 1.1,
+          color: '#ffb703',
+          trail: [],
+          hitIds: new Set(),
+        });
+      }
+    }
+  }
+
+  public applyRelic(id: RelicId): void {
+    this.activeRelic = id;
+    this.state = 'playing';
+    this.player.invulnTimer = Math.max(this.player.invulnTimer, 1.0);
+    this.spawnShockwave(this.player.x, this.player.y, 210, '#ffb703', 4);
+    this.addFloatingText(this.player.x, this.player.y - 36, 'РЕЛИКВИЯ АКТИВИРОВАНА!', '#ffb703', 1.25);
+    this.pushHud();
   }
 
   public continueToAbyss(): void {
@@ -507,6 +574,7 @@ export class AetherGame {
 
   public finishVictory(): void {
     this.state = 'gameover';
+    this.saveDailyGhostIfBest();
     this.pushHud();
     const rawShards = Math.max(25, Math.floor(this.kills * 0.5 + this.wave * 10)) + 100 + this.bonusShards;
     this.callbacks.onGameOver({
@@ -515,6 +583,7 @@ export class AetherGame {
       kills: this.kills,
       maxCombo: this.maxCombo,
       shards: Math.round(rawShards * this.greedMult),
+      durationSec: Math.round(this.runDurationSec),
       victory: true,
       mode: this.mode,
       upgrades: { ...this.acquiredUpgrades },
@@ -546,6 +615,7 @@ export class AetherGame {
 
   public declineRevive(): void {
     this.state = 'gameover';
+    this.saveDailyGhostIfBest();
     this.pushHud();
     const rawShards = Math.max(5, Math.floor(this.kills * 0.45 + this.wave * 6)) + this.bonusShards;
     const shards = Math.round(rawShards * this.greedMult);
@@ -555,6 +625,7 @@ export class AetherGame {
       kills: this.kills,
       maxCombo: this.maxCombo,
       shards,
+      durationSec: Math.round(this.runDurationSec),
       victory: false,
       mode: this.mode,
       upgrades: { ...this.acquiredUpgrades },
@@ -601,9 +672,36 @@ export class AetherGame {
         this.damageEnemy(e, 190 + this.wave * 22, true);
       }
       this.addFloatingText(this.player.x, this.player.y - 38, 'ГРОЗОВАЯ БУРЯ!', '#70e0ff', 1.3);
+    } else if (shipId === 'carrier') {
+      this.swarmTimer = 6.0;
+      this.spawnShockwave(this.player.x, this.player.y, 260, '#00ff87', 5);
+      this.addFloatingText(this.player.x, this.player.y - 38, 'РОЙ ДРОНОВ!', '#00ff87', 1.3);
+    } else if (shipId === 'blade') {
+      this.bladeTempestTimer = 4.5;
+      this.spawnShockwave(this.player.x, this.player.y, 240, '#ff2a85', 5);
+      this.addFloatingText(this.player.x, this.player.y - 38, 'ВИХРЬ КЛИНКОВ!', '#ff2a85', 1.3);
     }
 
     this.pushHud();
+  }
+
+  private saveDailyGhostIfBest(): void {
+    if (this.mode !== 'daily' || this.ghostSamples.length < 2) return;
+    if (this.score <= this.savedGhostScore) return;
+    try {
+      localStorage.setItem(
+        DAILY_GHOST_KEY,
+        JSON.stringify({
+          date: localTodayStr(),
+          score: this.score,
+          samples: this.ghostSamples,
+        })
+      );
+      this.savedGhostScore = this.score;
+      this.savedGhost = [...this.ghostSamples];
+    } catch {
+      // ignore quota errors
+    }
   }
 
   private phantomBlast(x: number, y: number): void {
@@ -786,6 +884,33 @@ export class AetherGame {
     this.powerZone = null;
     this.courier = null;
     this.meteors = [];
+    this.runDurationSec = 0;
+    this.currentBiome = 'deep';
+    this.activeMutatorName = '';
+    this.mutatorEnemySpeedMult = 1;
+    this.mutatorEnemyHpMult = 1;
+    this.mutatorEliteMult = 1;
+    this.activeRelic = null;
+    this.relicOffered = false;
+    this.blackHoles = [];
+    this.droneFireTimer = 0;
+    this.swarmTimer = 0;
+    this.bladeTempestTimer = 0;
+    this.slashArcs = [];
+    this.ghostSamples = [];
+    this.ghostRecordTimer = 0;
+    this.savedGhost = [];
+    this.savedGhostScore = 0;
+
+    this.cryoZones = [
+      { x: 640, y: 540, radius: 195 },
+      { x: 1760, y: 620, radius: 215 },
+      { x: 1180, y: 1320, radius: 205 },
+    ];
+    this.gravityWells = [
+      { x: 760, y: 960, radius: 240, strength: 135 },
+      { x: 1680, y: 840, radius: 250, strength: 145 },
+    ];
 
     if (!attractMode && this.mode === 'pvp') {
       this.player.x = this.coopRole === 'host' ? 450 : 1950;
@@ -824,6 +949,48 @@ export class AetherGame {
       this.profile.nextRunBuff = 'none';
     }
 
+    if (!attractMode && this.mode === 'mutator') {
+      const mut = getWeeklyMutator();
+      this.activeMutatorName = mut.name;
+      if (mut.id === 'ricochet_week') {
+        this.stats.ricochet += 2;
+        this.mutatorEnemySpeedMult = 1.2;
+        this.greedMult *= 1.35;
+      } else if (mut.id === 'elite_hunt') {
+        this.mutatorEliteMult = 2.0;
+        this.xpBuffMult *= 1.3;
+        this.greedMult *= 1.4;
+      } else if (mut.id === 'missile_rain') {
+        this.stats.homingMissiles += 2;
+        this.mutatorEnemyHpMult = 1.25;
+        this.greedMult *= 1.35;
+      } else if (mut.id === 'glass_cannon') {
+        this.stats.damage *= 1.45;
+        this.player.maxHp = Math.max(45, Math.round(this.player.maxHp * 0.75));
+        this.player.hp = this.player.maxHp;
+        this.greedMult *= 1.45;
+      }
+    }
+
+    if (!attractMode && this.mode === 'daily') {
+      try {
+        const rawGhost = localStorage.getItem(DAILY_GHOST_KEY);
+        if (rawGhost) {
+          const parsed = JSON.parse(rawGhost) as {
+            date?: string;
+            score?: number;
+            samples?: GhostSample[];
+          };
+          if (parsed.date === localTodayStr() && Array.isArray(parsed.samples)) {
+            this.savedGhost = parsed.samples;
+            this.savedGhostScore = Number(parsed.score) || 0;
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     this.camX = this.player.x;
     this.camY = this.player.y;
 
@@ -832,10 +999,15 @@ export class AetherGame {
 
   private startWave(waveNum: number, attractMode = false): void {
     this.wave = waveNum;
+    this.currentBiome = waveNum <= 3 ? 'deep' : waveNum <= 6 ? 'cryo' : 'rift';
     this.bossActive = waveNum % 5 === 0;
     this.waveSpawnRemaining =
       this.bossActive ? 6 + waveNum : waveNum === 1 ? 6 : waveNum === 2 ? 10 : 8 + waveNum * 4;
     this.spawnTimer = waveNum === 1 ? 0.8 : 0.4;
+
+    if (!attractMode) {
+      this.callbacks.onWaveReached?.(waveNum);
+    }
 
     if (this.bossActive && !attractMode) {
       this.bossDamagedPlayer = false;
@@ -848,10 +1020,13 @@ export class AetherGame {
       );
       this.spawnEnemy('boss');
     } else if (!attractMode && waveNum > 1) {
-      this.callbacks.onWaveBanner(
-        `ВОЛНА ${String(waveNum).padStart(2, '0')}`,
-        'УГРОЗА СЕКТОРА УСИЛИВАЕТСЯ'
-      );
+      const sub =
+        waveNum === 4
+          ? 'БИОМ: КРИО-ТУМАННОСТЬ (ЛЕДЯНЫЕ ПОЛЯ)'
+          : waveNum === 7
+          ? 'БИОМ: ГРАВИ-РАЗЛОМ (ВОРОНКИ ИСКАЖЕНИЯ)'
+          : 'УГРОЗА СЕКТОРА УСИЛИВАЕТСЯ';
+      this.callbacks.onWaveBanner(`ВОЛНА ${String(waveNum).padStart(2, '0')}`, sub);
     }
   }
 
@@ -948,8 +1123,11 @@ export class AetherGame {
       scoreValue = 2500;
     }
 
-    const eliteChance = this.wave >= 4 ? Math.min(0.26, 0.1 + (this.wave - 4) * 0.03) : 0;
+    const eliteChance =
+      this.wave >= 4 ? Math.min(0.65, (0.1 + (this.wave - 4) * 0.03) * this.mutatorEliteMult) : 0;
     const isElite = !forcedKind && kind !== 'mini' && kind !== 'boss' && Math.random() < eliteChance;
+    hp *= this.mutatorEnemyHpMult;
+    speed *= this.mutatorEnemySpeedMult;
     if (isElite) {
       radius *= 1.22;
       hp *= 1.85;
@@ -1039,6 +1217,71 @@ export class AetherGame {
     if (this.cloneTimer > 0) {
       this.cloneTimer = Math.max(0, this.cloneTimer - dt);
     }
+    if (this.swarmTimer > 0) {
+      this.swarmTimer = Math.max(0, this.swarmTimer - dt);
+    }
+    if (this.bladeTempestTimer > 0) {
+      this.bladeTempestTimer = Math.max(0, this.bladeTempestTimer - dt);
+      if (!isTitle) {
+        const tempestR = 155;
+        for (const e of [...this.enemies]) {
+          if (e.hp <= 0) continue;
+          if (Math.hypot(e.x - this.player.x, e.y - this.player.y) <= tempestR + e.radius) {
+            this.damageEnemy(e, this.stats.damage * 13 * dt, false);
+          }
+        }
+        for (let i = this.bullets.length - 1; i >= 0; i--) {
+          const bul = this.bullets[i];
+          if (bul.isEnemy && Math.hypot(bul.x - this.player.x, bul.y - this.player.y) <= tempestR) {
+            this.spawnParticles(bul.x, bul.y, 3, '#ff2a85', 110);
+            this.bullets.splice(i, 1);
+          }
+        }
+      }
+    }
+
+    for (let i = this.slashArcs.length - 1; i >= 0; i--) {
+      this.slashArcs[i].life -= dt;
+      if (this.slashArcs[i].life <= 0) this.slashArcs.splice(i, 1);
+    }
+
+    for (let i = this.blackHoles.length - 1; i >= 0; i--) {
+      const bh = this.blackHoles[i];
+      bh.life -= dt;
+      if (bh.life <= 0) {
+        this.blackHoles.splice(i, 1);
+        continue;
+      }
+      for (const e of [...this.enemies]) {
+        if (e.hp <= 0) continue;
+        const dx = bh.x - e.x;
+        const dy = bh.y - e.y;
+        const d = Math.hypot(dx, dy) || 1;
+        if (d < bh.radius + e.radius) {
+          if (d > 14 && e.kind !== 'boss') {
+            e.x += (dx / d) * 185 * dt;
+            e.y += (dy / d) * 185 * dt;
+          }
+          this.damageEnemy(e, this.stats.damage * 5.2 * dt, false);
+        }
+      }
+    }
+
+    if (!isTitle) {
+      this.runDurationSec += dt;
+      if (this.mode === 'daily' && this.ghostSamples.length < 400) {
+        this.ghostRecordTimer += dt;
+        if (this.ghostRecordTimer >= 0.25) {
+          this.ghostRecordTimer -= 0.25;
+          this.ghostSamples.push({
+            t: Number(this.runDurationSec.toFixed(2)),
+            x: Math.round(this.player.x),
+            y: Math.round(this.player.y),
+            a: Number(this.player.angle.toFixed(2)),
+          });
+        }
+      }
+    }
 
     if (!isTitle && this.mode !== 'pvp') {
       this.updateArenaEvents(dt);
@@ -1070,6 +1313,7 @@ export class AetherGame {
           kills: this.kills,
           maxCombo: this.maxCombo,
           shards: Math.round(rawShards * this.greedMult),
+          durationSec: Math.round(this.runDurationSec),
           victory: true,
           mode: this.mode,
           upgrades: { ...this.acquiredUpgrades },
@@ -1087,6 +1331,7 @@ export class AetherGame {
         kills: this.kills + 1,
         maxCombo: this.maxCombo,
         shards: 80,
+        durationSec: Math.round(this.runDurationSec),
         victory: true,
         mode: this.mode,
         upgrades: { ...this.acquiredUpgrades },
@@ -1208,14 +1453,69 @@ export class AetherGame {
       p.afterimages.push({ x: p.x, y: p.y, angle: p.angle, alpha: 0.75 });
     } else {
       const accel = 14;
-      const targetVx = moveX * this.stats.moveSpeed;
-      const targetVy = moveY * this.stats.moveSpeed;
+      let speedEnvMult = 1;
+      if (!isTitle && this.currentBiome === 'cryo') {
+        for (const z of this.cryoZones) {
+          if (Math.hypot(p.x - z.x, p.y - z.y) < z.radius) {
+            speedEnvMult = 0.84;
+            break;
+          }
+        }
+      }
+      const targetVx = moveX * this.stats.moveSpeed * speedEnvMult;
+      const targetVy = moveY * this.stats.moveSpeed * speedEnvMult;
       p.vx += (targetVx - p.vx) * Math.min(1, accel * dt);
       p.vy += (targetVy - p.vy) * Math.min(1, accel * dt);
+
+      if (!isTitle && this.currentBiome === 'rift') {
+        for (const w of this.gravityWells) {
+          const gdx = w.x - p.x;
+          const gdy = w.y - p.y;
+          const gd = Math.hypot(gdx, gdy) || 1;
+          if (gd < w.radius && gd > 18) {
+            const pull = (1 - gd / w.radius) * w.strength * 0.55;
+            p.vx += (gdx / gd) * pull * dt * 2.5;
+            p.vy += (gdy / gd) * pull * dt * 2.5;
+          }
+        }
+      }
     }
 
     p.x = Math.max(p.radius + 16, Math.min(this.arenaW - p.radius - 16, p.x + p.vx * dt));
     p.y = Math.max(p.radius + 16, Math.min(this.arenaH - p.radius - 16, p.y + p.vy * dt));
+
+    // Carrier autonomous helper drones
+    if (!isTitle && this.profile?.selectedShip === 'carrier') {
+      const droneCount = this.swarmTimer > 0 ? 6 : 2;
+      this.droneFireTimer -= dt;
+      if (this.droneFireTimer <= 0) {
+        this.droneFireTimer = this.swarmTimer > 0 ? 0.34 : 0.72;
+        for (let dIdx = 0; dIdx < droneCount; dIdx++) {
+          const orbitR = dIdx < 2 ? 56 : 86;
+          const baseRot = this.time * (dIdx < 2 ? 2.1 : -1.7) + (dIdx * Math.PI * 2) / droneCount;
+          const dxPos = p.x + Math.cos(baseRot) * orbitR;
+          const dyPos = p.y + Math.sin(baseRot) * orbitR;
+          const target = this.findNearestEnemy(dxPos, dyPos);
+          const fireAngle = target ? Math.atan2(target.y - dyPos, target.x - dxPos) : p.angle;
+          this.bullets.push({
+            x: dxPos,
+            y: dyPos,
+            vx: Math.cos(fireAngle) * (this.stats.projectileSpeed * 0.85),
+            vy: Math.sin(fireAngle) * (this.stats.projectileSpeed * 0.85),
+            radius: 3.8,
+            damage: this.stats.damage * (this.swarmTimer > 0 ? 0.72 : 0.55),
+            isEnemy: false,
+            isHoming: this.swarmTimer > 0,
+            pierceLeft: 0,
+            ricochetLeft: 0,
+            life: 1.35,
+            color: '#00ff87',
+            trail: [],
+            hitIds: new Set(),
+          });
+        }
+      }
+    }
 
     // Engine & wingtip trails
     if (Math.hypot(p.vx, p.vy) > 35) {
@@ -1285,12 +1585,15 @@ export class AetherGame {
     }
   }
 
-  private fireWeapon(silent: boolean): void {
+  private fireWeapon(silent: boolean, isEcho = false): void {
     const p = this.player;
     const rateMult = p.overclockTimer > 0 ? 1.9 : 1;
-    p.fireCooldown = 1 / (this.stats.fireRate * rateMult);
-    p.shotCounter++;
+    if (!isEcho) {
+      p.fireCooldown = 1 / (this.stats.fireRate * rateMult);
+      p.shotCounter++;
+    }
 
+    const shipId = this.profile?.selectedShip || 'interceptor';
     const count = this.stats.projectiles;
     const isCrit = Math.random() < this.stats.critChance;
     const zoneMult =
@@ -1299,29 +1602,96 @@ export class AetherGame {
         : 1;
     const dmg = this.stats.damage * (isCrit ? 1.9 : 1) * zoneMult;
 
-    for (let i = 0; i < count; i++) {
-      const offset =
-        count === 1 ? 0 : (i - (count - 1) / 2) * (this.stats.spreadAngle / Math.max(1, count - 1));
-      const a = p.angle + offset;
-      const muzzleX = p.x + Math.cos(a) * 20;
-      const muzzleY = p.y + Math.sin(a) * 20;
-
-      this.bullets.push({
-        x: muzzleX,
-        y: muzzleY,
-        vx: Math.cos(a) * this.stats.projectileSpeed,
-        vy: Math.sin(a) * this.stats.projectileSpeed,
-        radius: isCrit ? 5.6 : 4.2,
-        damage: dmg,
-        isEnemy: false,
-        isCrit,
-        pierceLeft: this.stats.pierce,
-        ricochetLeft: this.stats.ricochet,
-        life: 1.5,
-        color: p.overclockTimer > 0 ? '#ffb703' : isCrit ? this.theme.accent : this.theme.primary,
-        trail: [],
-        hitIds: new Set(),
+    if (shipId === 'blade') {
+      if (this.slashArcs.length >= 6) this.slashArcs.shift();
+      this.slashArcs.push({
+        x: p.x,
+        y: p.y,
+        angle: p.angle,
+        radius: 112,
+        life: 0.16,
+        maxLife: 0.16,
       });
+      for (const e of [...this.enemies]) {
+        if (e.hp <= 0) continue;
+        const d = Math.hypot(e.x - p.x, e.y - p.y);
+        if (d <= 112 + e.radius) {
+          let diff = Math.atan2(e.y - p.y, e.x - p.x) - p.angle;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          if (Math.abs(diff) <= 1.15) {
+            this.damageEnemy(e, dmg * 1.15, !silent, isCrit);
+          }
+        }
+      }
+      for (let i = this.bullets.length - 1; i >= 0; i--) {
+        const bul = this.bullets[i];
+        if (!bul.isEnemy) continue;
+        const d = Math.hypot(bul.x - p.x, bul.y - p.y);
+        if (d <= 115) {
+          let diff = Math.atan2(bul.y - p.y, bul.x - p.x) - p.angle;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          if (Math.abs(diff) <= 1.15) {
+            this.spawnParticles(bul.x, bul.y, 3, '#ff2a85', 110);
+            this.bullets.splice(i, 1);
+          }
+        }
+      }
+      for (let i = 0; i < count; i++) {
+        const offset =
+          count === 1 ? 0 : (i - (count - 1) / 2) * (this.stats.spreadAngle / Math.max(1, count - 1));
+        const a = p.angle + offset;
+        this.bullets.push({
+          x: p.x + Math.cos(a) * 22,
+          y: p.y + Math.sin(a) * 22,
+          vx: Math.cos(a) * (this.stats.projectileSpeed * 0.78),
+          vy: Math.sin(a) * (this.stats.projectileSpeed * 0.78),
+          radius: 5.5,
+          damage: dmg * 0.8,
+          isEnemy: false,
+          isCrit,
+          pierceLeft: this.stats.pierce + 1,
+          ricochetLeft: this.stats.ricochet,
+          life: 0.65,
+          color: '#ff2a85',
+          trail: [],
+          hitIds: new Set(),
+        });
+      }
+    } else {
+      for (let i = 0; i < count; i++) {
+        const offset =
+          count === 1 ? 0 : (i - (count - 1) / 2) * (this.stats.spreadAngle / Math.max(1, count - 1));
+        const a = p.angle + offset;
+        const muzzleX = p.x + Math.cos(a) * 20;
+        const muzzleY = p.y + Math.sin(a) * 20;
+
+        this.bullets.push({
+          x: muzzleX,
+          y: muzzleY,
+          vx: Math.cos(a) * this.stats.projectileSpeed,
+          vy: Math.sin(a) * this.stats.projectileSpeed,
+          radius: isCrit ? 5.6 : 4.2,
+          damage: dmg,
+          isEnemy: false,
+          isCrit,
+          pierceLeft: this.stats.pierce,
+          ricochetLeft: this.stats.ricochet,
+          life: 1.5,
+          color: p.overclockTimer > 0 ? '#ffb703' : isCrit ? this.theme.accent : this.theme.primary,
+          trail: [],
+          hitIds: new Set(),
+        });
+      }
+    }
+
+    if (!isEcho && !silent && this.activeRelic === 'relic_blackhole' && p.shotCounter % 10 === 0 && this.mode !== 'pvp') {
+      if (this.blackHoles.length >= 2) this.blackHoles.shift();
+      const bx = Math.max(140, Math.min(this.arenaW - 140, p.x + Math.cos(p.angle) * 230));
+      const by = Math.max(140, Math.min(this.arenaH - 140, p.y + Math.sin(p.angle) * 230));
+      this.blackHoles.push({ x: bx, y: by, life: 4.5, maxLife: 4.5, radius: 145 });
+      this.spawnShockwave(bx, by, 145, '#c77dff', 3);
     }
 
     if (this.stats.homingMissiles > 0 && (this.stats.evoOmega ? p.shotCounter % 2 === 0 : p.shotCounter % 4 === 0)) {
@@ -1367,6 +1737,10 @@ export class AetherGame {
           hitIds: new Set(),
         });
       }
+    }
+
+    if (!isEcho && !silent && this.activeRelic === 'relic_echo' && Math.random() < 0.25) {
+      this.fireWeapon(true, true);
     }
 
     if (!silent) {
@@ -1724,8 +2098,30 @@ export class AetherGame {
         }
       }
 
-      e.x = Math.max(e.radius + 16, Math.min(this.arenaW - e.radius - 16, e.x + e.vx * dt));
-      e.y = Math.max(e.radius + 16, Math.min(this.arenaH - e.radius - 16, e.y + e.vy * dt));
+      let enemySpeedEnv = 1;
+      if (!isTitle && this.currentBiome === 'cryo') {
+        for (const z of this.cryoZones) {
+          if (Math.hypot(e.x - z.x, e.y - z.y) < z.radius) {
+            enemySpeedEnv = 0.68;
+            break;
+          }
+        }
+      }
+      if (!isTitle && this.currentBiome === 'rift' && e.kind !== 'boss') {
+        for (const w of this.gravityWells) {
+          const gdx = w.x - e.x;
+          const gdy = w.y - e.y;
+          const gd = Math.hypot(gdx, gdy) || 1;
+          if (gd < w.radius && gd > 16) {
+            const pull = (1 - gd / w.radius) * w.strength * 0.75;
+            e.vx += (gdx / gd) * pull;
+            e.vy += (gdy / gd) * pull;
+          }
+        }
+      }
+
+      e.x = Math.max(e.radius + 16, Math.min(this.arenaW - e.radius - 16, e.x + e.vx * enemySpeedEnv * dt));
+      e.y = Math.max(e.radius + 16, Math.min(this.arenaH - e.radius - 16, e.y + e.vy * enemySpeedEnv * dt));
 
       if (!isTitle && p.invulnTimer <= 0 && Math.hypot(e.x - p.x, e.y - p.y) < e.radius + p.radius - 3) {
         const contactDmg = e.kind === 'boss' ? 24 : this.wave <= 2 ? 11 : 16;
@@ -1735,6 +2131,9 @@ export class AetherGame {
   }
 
   private updateBullets(dt: number, isTitle: boolean): void {
+    while (this.bullets.length > 260) {
+      this.bullets.shift();
+    }
     const p = this.player;
 
     for (let i = this.bullets.length - 1; i >= 0; i--) {
@@ -1762,6 +2161,19 @@ export class AetherGame {
 
       b.trail.push({ x: b.x, y: b.y });
       if (b.trail.length > 6) b.trail.shift();
+
+      if (!isTitle && this.currentBiome === 'rift') {
+        for (const w of this.gravityWells) {
+          const gdx = w.x - b.x;
+          const gdy = w.y - b.y;
+          const gd = Math.hypot(gdx, gdy) || 1;
+          if (gd < w.radius && gd > 16) {
+            const pull = (1 - gd / w.radius) * w.strength * 2.2;
+            b.vx += (gdx / gd) * pull * dt;
+            b.vy += (gdy / gd) * pull * dt;
+          }
+        }
+      }
 
       b.x += b.vx * dt;
       b.y += b.vy * dt;
@@ -1972,13 +2384,40 @@ export class AetherGame {
         sound.playExplosion(isBoss ? 2.2 : e.kind === 'splitter' ? 1.3 : 0.9);
       }
       this.addShake(isBoss ? 20 : e.kind === 'splitter' ? 6 : 3);
+      const expStyle = this.profile?.selectedExplosion || 'shards';
+      if (expStyle === 'rings') {
+        this.spawnParticles(e.x, e.y, isBoss ? 48 : 16, e.color, isBoss ? 390 : 230, 'circle');
+        this.spawnShockwave(e.x, e.y, isBoss ? 300 : 75, e.color, isBoss ? 6 : 3);
+        this.spawnShockwave(e.x, e.y, isBoss ? 190 : 45, this.theme.accent, 2);
+      } else if (expStyle === 'supernova') {
+        this.spawnParticles(e.x, e.y, isBoss ? 60 : 20, '#ffd166', isBoss ? 450 : 280, 'shard');
+        this.spawnShockwave(e.x, e.y, isBoss ? 320 : 82, '#ffd166', isBoss ? 6 : 3);
+      } else {
+        this.spawnParticles(e.x, e.y, isBoss ? 55 : 18, e.color, isBoss ? 420 : 240, 'shard');
+        this.spawnShockwave(e.x, e.y, isBoss ? 280 : 65, e.color, isBoss ? 6 : 2.5);
+      }
+
       if (isBoss) {
         this.hitStop = 0.08;
         this.slowMoTimer = 0.55;
         this.bossActive = false;
         this.addFloatingText(e.x, e.y - 50, 'БОСС УНИЧТОЖЕН!', '#ffb703', 1.4);
+        this.callbacks.onBossKilled?.(this.wave);
         if (!this.bossDamagedPlayer && this.state === 'playing') {
           this.callbacks.onAchievement?.('ach_no_hit_boss');
+        }
+        if (
+          this.wave === 5 &&
+          !this.relicOffered &&
+          this.state === 'playing' &&
+          this.mode !== 'pvp' &&
+          this.callbacks.onRelicChoice
+        ) {
+          this.relicOffered = true;
+          this.state = 'paused';
+          this.pushHud();
+          this.callbacks.onRelicChoice(['relic_blackhole', 'relic_dashnova', 'relic_echo']);
+          return;
         }
         if (this.mode === 'classic' && this.wave >= 10 && !this.inAbyss && this.state === 'playing') {
           this.callbacks.onAchievement?.('ach_first_win');
@@ -1988,9 +2427,6 @@ export class AetherGame {
           return;
         }
       }
-
-      this.spawnParticles(e.x, e.y, isBoss ? 55 : 18, e.color, isBoss ? 420 : 240, 'shard');
-      this.spawnShockwave(e.x, e.y, isBoss ? 280 : 65, e.color, isBoss ? 6 : 2.5);
 
       // Chance to drop bonus PowerUp
       if (this.state === 'playing' && (isBoss || Math.random() < 0.045)) {
@@ -2367,6 +2803,14 @@ export class AetherGame {
       shieldReady: this.player.shieldReady,
       mode: this.mode,
       blitzTimer: Math.max(0, Math.ceil(this.blitzTimer)),
+      biomeName:
+        this.currentBiome === 'cryo'
+          ? 'КРИО-ТУМАННОСТЬ'
+          : this.currentBiome === 'rift'
+          ? 'ГРАВИ-РАЗЛОМ'
+          : 'ГЛУБОКИЙ КОСМОС',
+      mutatorName: this.activeMutatorName,
+      activeRelic: this.activeRelic,
       boss: boss
         ? {
             name:
@@ -2430,6 +2874,39 @@ export class AetherGame {
     }
 
     this.renderGrid(ctx);
+
+    // Биомы секторов (волны 4-6 Крио-туманность, 7+ Грави-разлом)
+    if (this.currentBiome === 'cryo') {
+      for (const z of this.cryoZones) {
+        const g = ctx.createRadialGradient(z.x, z.y, 12, z.x, z.y, z.radius);
+        g.addColorStop(0, 'rgba(112, 224, 255, 0.16)');
+        g.addColorStop(1, 'rgba(112, 224, 255, 0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(z.x, z.y, z.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(112, 224, 255, 0.35)';
+        ctx.lineWidth = 1.6;
+        ctx.setLineDash([10, 8]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    } else if (this.currentBiome === 'rift') {
+      for (const w of this.gravityWells) {
+        const g = ctx.createRadialGradient(w.x, w.y, 8, w.x, w.y, w.radius);
+        g.addColorStop(0, 'rgba(181, 23, 158, 0.28)');
+        g.addColorStop(1, 'rgba(123, 44, 191, 0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(w.x, w.y, w.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(199, 125, 255, 0.45)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(w.x, w.y, 28 + Math.sin(this.time * 4) * 5, this.time * 3, this.time * 3 + Math.PI * 1.5);
+        ctx.stroke();
+      }
+    }
 
     ctx.strokeStyle = this.theme.primary;
     ctx.lineWidth = 3;
@@ -2517,6 +2994,42 @@ export class AetherGame {
       ctx.beginPath();
       ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
       ctx.stroke();
+    }
+
+    // Сингулярности (чёрные дыры от реликвии)
+    for (const bh of this.blackHoles) {
+      const pulse = 1 + Math.sin(this.time * 12) * 0.08;
+      ctx.save();
+      ctx.strokeStyle = '#c77dff';
+      ctx.fillStyle = 'rgba(123, 44, 191, 0.25)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(bh.x, bh.y, bh.radius * 0.45 * pulse, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.strokeStyle = '#00f5ff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(bh.x, bh.y, 18, this.time * 6, this.time * 6 + Math.PI * 1.4);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Дуги взмаха ближнего боя (Берсерк)
+    for (const sl of this.slashArcs) {
+      const alpha = Math.max(0, sl.life / sl.maxLife);
+      ctx.save();
+      ctx.translate(sl.x, sl.y);
+      ctx.rotate(sl.angle);
+      ctx.strokeStyle = `rgba(255, 42, 133, ${alpha.toFixed(2)})`;
+      ctx.lineWidth = 10 * alpha;
+      ctx.beginPath();
+      ctx.arc(0, 0, sl.radius, -1.05, 1.05);
+      ctx.stroke();
+      ctx.strokeStyle = `rgba(255, 255, 255, ${alpha.toFixed(2)})`;
+      ctx.lineWidth = 3 * alpha;
+      ctx.stroke();
+      ctx.restore();
     }
 
     for (const arc of this.arcs) {
@@ -2611,6 +3124,9 @@ export class AetherGame {
     }
 
     this.renderPlayer(ctx);
+    if (this.mode === 'daily' && this.savedGhost.length > 1 && this.state === 'playing') {
+      this.renderDailyGhost(ctx);
+    }
     if (this.coopRole !== 'none' && this.remotePlayer.connected) {
       this.renderRemotePlayer(ctx);
     }
@@ -2753,11 +3269,82 @@ export class AetherGame {
       ctx.fill();
     }
 
-    for (const tr of p.trail) {
-      ctx.fillStyle = this.hexToRgba(this.theme.primary, tr.alpha * 0.6);
+    const trailStyle = this.profile?.selectedTrail || 'neon';
+    if (trailStyle === 'lightning' && p.trail.length > 1) {
+      ctx.strokeStyle = 'rgba(112, 224, 255, 0.78)';
+      ctx.lineWidth = 2.2;
       ctx.beginPath();
-      ctx.arc(tr.x, tr.y, 4.5 * tr.alpha, 0, Math.PI * 2);
-      ctx.fill();
+      p.trail.forEach((tr, idx) => {
+        const jx = tr.x + Math.sin(idx * 5 + this.time * 30) * 4;
+        const jy = tr.y + Math.cos(idx * 7 + this.time * 30) * 4;
+        if (idx === 0) ctx.moveTo(jx, jy);
+        else ctx.lineTo(jx, jy);
+      });
+      ctx.stroke();
+    } else {
+      for (let i = 0; i < p.trail.length; i++) {
+        const tr = p.trail[i];
+        if (trailStyle === 'plasma') {
+          ctx.strokeStyle = this.hexToRgba(this.theme.accent, tr.alpha * 0.75);
+          ctx.lineWidth = 1.6;
+          ctx.beginPath();
+          ctx.arc(tr.x, tr.y, 6.2 * tr.alpha, 0, Math.PI * 2);
+          ctx.stroke();
+        } else if (trailStyle === 'flame') {
+          ctx.fillStyle = `rgba(255, ${Math.round(90 + tr.alpha * 110)}, 20, ${(tr.alpha * 0.75).toFixed(2)})`;
+          ctx.beginPath();
+          ctx.arc(tr.x, tr.y, 5.2 * tr.alpha, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (trailStyle === 'prism') {
+          const hue = (i * 28 + Math.floor(this.time * 240)) % 360;
+          ctx.fillStyle = `hsla(${hue}, 100%, 62%, ${(tr.alpha * 0.7).toFixed(2)})`;
+          ctx.beginPath();
+          ctx.arc(tr.x, tr.y, 4.8 * tr.alpha, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.fillStyle = this.hexToRgba(this.theme.primary, tr.alpha * 0.6);
+          ctx.beginPath();
+          ctx.arc(tr.x, tr.y, 4.5 * tr.alpha, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    if (this.bladeTempestTimer > 0) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255, 42, 133, 0.85)';
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 150, this.time * 9, this.time * 9 + Math.PI * 1.65);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 132, -this.time * 11, -this.time * 11 + Math.PI * 1.5);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    if (this.profile?.selectedShip === 'carrier') {
+      const droneCount = this.swarmTimer > 0 ? 6 : 2;
+      for (let dIdx = 0; dIdx < droneCount; dIdx++) {
+        const orbitR = dIdx < 2 ? 56 : 86;
+        const baseRot = this.time * (dIdx < 2 ? 2.1 : -1.7) + (dIdx * Math.PI * 2) / droneCount;
+        const dxPos = p.x + Math.cos(baseRot) * orbitR;
+        const dyPos = p.y + Math.sin(baseRot) * orbitR;
+        ctx.save();
+        ctx.translate(dxPos, dyPos);
+        ctx.rotate(baseRot + Math.PI / 2);
+        ctx.strokeStyle = '#00ff87';
+        ctx.fillStyle = 'rgba(0, 255, 135, 0.25)';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(8, 0);
+        ctx.lineTo(-5, -5);
+        ctx.lineTo(-5, 5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
     }
 
     for (const img of p.afterimages) {
@@ -2827,7 +3414,7 @@ export class AetherGame {
     ctx.strokeStyle = p.overclockTimer > 0 ? '#ffb703' : this.theme.primary;
     ctx.fillStyle = 'rgba(255,255,255,0.14)';
     ctx.lineWidth = 2.6;
-    this.traceShipPath(ctx, p.radius);
+    this.traceShipPath(ctx, p.radius, this.profile?.selectedShip);
     ctx.fill();
     ctx.stroke();
 
@@ -2838,6 +3425,44 @@ export class AetherGame {
     ctx.restore();
     ctx.globalAlpha = 1;
     ctx.shadowBlur = 0;
+  }
+
+  private renderDailyGhost(ctx: CanvasRenderingContext2D): void {
+    const t = this.runDurationSec;
+    let sample = this.savedGhost[this.savedGhost.length - 1];
+    for (let i = 0; i < this.savedGhost.length - 1; i++) {
+      const cur = this.savedGhost[i];
+      const nxt = this.savedGhost[i + 1];
+      if (t >= cur.t && t <= nxt.t) {
+        const ratio = Math.max(0, Math.min(1, (t - cur.t) / Math.max(0.01, nxt.t - cur.t)));
+        sample = {
+          t,
+          x: cur.x + (nxt.x - cur.x) * ratio,
+          y: cur.y + (nxt.y - cur.y) * ratio,
+          a: cur.a,
+        };
+        break;
+      }
+    }
+    if (!sample) return;
+
+    ctx.save();
+    ctx.translate(sample.x, sample.y);
+    ctx.save();
+    ctx.rotate(sample.a);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.42)';
+    ctx.fillStyle = 'rgba(0, 245, 255, 0.08)';
+    ctx.lineWidth = 1.8;
+    ctx.setLineDash([4, 3]);
+    this.traceShipPath(ctx, 15);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+    ctx.font = '700 10px "Exo 2", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('ТВОЙ ПРИЗРАК', 0, -24);
+    ctx.restore();
   }
 
   private renderRemotePlayer(ctx: CanvasRenderingContext2D): void {
@@ -2866,12 +3491,38 @@ export class AetherGame {
     ctx.restore();
   }
 
-  private traceShipPath(ctx: CanvasRenderingContext2D, r: number): void {
+  private traceShipPath(ctx: CanvasRenderingContext2D, r: number, shipId?: ShipClassId): void {
     ctx.beginPath();
-    ctx.moveTo(r * 1.35, 0);
-    ctx.lineTo(-r * 0.9, -r * 0.85);
-    ctx.lineTo(-r * 0.45, 0);
-    ctx.lineTo(-r * 0.9, r * 0.85);
+    if (shipId === 'juggernaut') {
+      ctx.moveTo(r * 1.1, 0);
+      ctx.lineTo(r * 0.4, -r * 0.9);
+      ctx.lineTo(-r * 0.95, -r * 1.0);
+      ctx.lineTo(-r * 0.6, -r * 0.3);
+      ctx.lineTo(-r * 0.6, r * 0.3);
+      ctx.lineTo(-r * 0.95, r * 1.0);
+      ctx.lineTo(r * 0.4, r * 0.9);
+    } else if (shipId === 'carrier') {
+      ctx.moveTo(r * 1.25, -r * 0.35);
+      ctx.lineTo(r * 0.85, -r * 0.95);
+      ctx.lineTo(-r * 0.95, -r * 0.95);
+      ctx.lineTo(-r * 0.55, 0);
+      ctx.lineTo(-r * 0.95, r * 0.95);
+      ctx.lineTo(r * 0.85, r * 0.95);
+      ctx.lineTo(r * 1.25, r * 0.35);
+      ctx.lineTo(r * 0.4, 0);
+    } else if (shipId === 'blade') {
+      ctx.moveTo(r * 1.45, 0);
+      ctx.lineTo(r * 0.1, -r * 1.1);
+      ctx.lineTo(-r * 0.8, -r * 0.9);
+      ctx.lineTo(-r * 0.3, 0);
+      ctx.lineTo(-r * 0.8, r * 0.9);
+      ctx.lineTo(r * 0.1, r * 1.1);
+    } else {
+      ctx.moveTo(r * 1.35, 0);
+      ctx.lineTo(-r * 0.9, -r * 0.85);
+      ctx.lineTo(-r * 0.45, 0);
+      ctx.lineTo(-r * 0.9, r * 0.85);
+    }
     ctx.closePath();
   }
 
@@ -3041,6 +3692,26 @@ export function drawShipPreview(canvas: HTMLCanvasElement, shipId: ShipClassId, 
     ctx.stroke();
     ctx.restore();
     return;
+  } else if (shipId === 'carrier') {
+    // Twin-deck drone carrier
+    ctx.moveTo(16, -5);
+    ctx.lineTo(10, -14);
+    ctx.lineTo(-14, -14);
+    ctx.lineTo(-8, 0);
+    ctx.lineTo(-14, 14);
+    ctx.lineTo(10, 14);
+    ctx.lineTo(16, 5);
+    ctx.lineTo(6, 0);
+    ctx.closePath();
+  } else if (shipId === 'blade') {
+    // Swept crescent scythe striker
+    ctx.moveTo(19, 0);
+    ctx.lineTo(2, -16);
+    ctx.lineTo(-13, -13);
+    ctx.lineTo(-5, 0);
+    ctx.lineTo(-13, 13);
+    ctx.lineTo(2, 16);
+    ctx.closePath();
   } else {
     // Interceptor sleek delta arrow
     ctx.moveTo(18, 0);

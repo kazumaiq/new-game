@@ -32,6 +32,16 @@ export const ICONS = {
   clock: svg('<circle cx="12" cy="12" r="9"/><polyline points="12,7 12,12 16,14"/>'),
   calendar: svg('<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>'),
   infinity: svg('<path d="M18.178 8c5.096 0 5.096 8 0 8-5.095 0-7.133-8-12.739-8-4.585 0-4.585 8 0 8 5.606 0 7.644-8 12.74-8z"/>'),
+  pass: svg('<path d="M12 2l3.5 5 5.5 1-3 5 1 6-7-2.5L5 19l1-6-3-5 5.5-1z"/><circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"/>'),
+  clan: svg('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polygon points="12,7 14.5,11.5 12,16 9.5,11.5" fill="currentColor" stroke="none"/>'),
+  gift: svg('<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5C11 3 12 8 12 8s1-5 4.5-5a2.5 2.5 0 0 1 0 5"/>'),
+  film: svg('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5" fill="currentColor" stroke="none"/>'),
+  relic: svg('<polygon points="12,2 19,7 21,15 12,22 3,15 5,7"/><polygon points="12,6 16,12 12,18 8,12" fill="currentColor" fill-opacity="0.3"/>'),
+  drone: svg('<polygon points="12,3 17,9 12,21 7,9"/><path d="M3 10l4 2"/><path d="M21 10l-4 2"/><circle cx="12" cy="10" r="1.5" fill="currentColor" stroke="none"/>'),
+  mutator: svg('<polygon points="12,2 22,8.5 22,15.5 12,22 2,15.5 2,8.5"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="9"/><line x1="12" y1="15" x2="12" y2="22"/>'),
+  friends: svg('<circle cx="9" cy="7" r="3.5"/><path d="M2 20v-1.5A4.5 4.5 0 0 1 6.5 14h5A4.5 4.5 0 0 1 16 18.5V20"/><circle cx="17" cy="8" r="2.8"/><path d="M22 20v-1a3.5 3.5 0 0 0-3-3.46"/>'),
+  crown: svg('<path d="M3 18h18"/><path d="M4 15l2-9 6 4 6-4 2 9z"/>'),
+  copy: svg('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>'),
 };
 
 export type IconKey = keyof typeof ICONS;
