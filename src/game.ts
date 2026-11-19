@@ -624,15 +624,16 @@ export class AetherGame {
     switch (id) {
       case 'multishot':
         this.stats.projectiles += 1;
-        this.stats.spreadAngle = Math.min(0.45, 0.08 * (this.stats.projectiles - 1));
+        this.stats.damage *= 0.88;
+        this.stats.spreadAngle = Math.min(0.48, 0.09 * (this.stats.projectiles - 1));
         break;
       case 'firerate':
-        this.stats.fireRate *= 1.24;
-        this.stats.projectileSpeed *= 1.12;
+        this.stats.fireRate *= 1.16;
+        this.stats.projectileSpeed *= 1.1;
         break;
       case 'damage':
-        this.stats.damage *= 1.3;
-        this.stats.critChance = Math.min(0.85, this.stats.critChance + 0.08);
+        this.stats.damage *= 1.2;
+        this.stats.critChance = Math.min(0.75, this.stats.critChance + 0.05);
         break;
       case 'chain':
         this.stats.chainLightning += 1;
@@ -645,46 +646,46 @@ export class AetherGame {
         this.stats.orbitalBlades += 2;
         break;
       case 'homing':
-        this.stats.homingMissiles += 2;
+        this.stats.homingMissiles += 1;
         break;
       case 'phantomdash':
         this.stats.phantomDash = true;
-        this.stats.dashCooldown *= 0.75;
+        this.stats.dashCooldown = Math.max(0.55, this.stats.dashCooldown * 0.82);
         break;
       case 'aegisshield':
         this.stats.aegisShieldCooldown =
-          this.stats.aegisShieldCooldown === 0 ? 14 : Math.max(5, this.stats.aegisShieldCooldown * 0.7);
+          this.stats.aegisShieldCooldown === 0 ? 18 : Math.max(11, this.stats.aegisShieldCooldown - 3.5);
         this.player.shieldReady = true;
         this.player.shieldTimer = 0;
         break;
       case 'vampiric':
-        this.stats.vampiricChance = Math.min(0.45, this.stats.vampiricChance + 0.12);
-        this.player.hp = Math.min(this.player.maxHp, this.player.hp + 20);
+        this.stats.vampiricChance = Math.min(0.24, this.stats.vampiricChance + 0.07);
+        this.player.hp = Math.min(this.player.maxHp, this.player.hp + 15);
         break;
       case 'thrusters':
-        this.stats.moveSpeed *= 1.16;
-        this.stats.pickupRadius *= 1.45;
+        this.stats.moveSpeed *= 1.12;
+        this.stats.pickupRadius *= 1.35;
         break;
       case 'hull':
-        this.player.maxHp += 35;
-        this.player.hp = Math.min(this.player.maxHp, this.player.hp + 40);
+        this.player.maxHp += 25;
+        this.player.hp = Math.min(this.player.maxHp, this.player.hp + 30);
         break;
       case 'crit':
-        this.stats.critChance = Math.min(0.9, this.stats.critChance + 0.18);
+        this.stats.critChance = Math.min(0.75, this.stats.critChance + 0.14);
         break;
       case 'evo_storm':
         this.stats.evoStorm = true;
-        this.stats.projectiles += 2;
-        this.stats.spreadAngle = Math.min(0.55, 0.08 * (this.stats.projectiles - 1));
-        this.stats.chainLightning += 2;
+        this.stats.projectiles += 1;
+        this.stats.spreadAngle = Math.min(0.52, 0.09 * (this.stats.projectiles - 1));
+        this.stats.chainLightning += 1;
         break;
       case 'evo_vortex':
         this.stats.evoVortex = true;
-        this.stats.orbitalBlades += 2;
+        this.stats.orbitalBlades += 1;
         break;
       case 'evo_omega':
         this.stats.evoOmega = true;
-        this.stats.homingMissiles += 2;
+        this.stats.homingMissiles += 1;
         break;
     }
 
@@ -701,9 +702,9 @@ export class AetherGame {
   private resetRun(attractMode: boolean): void {
     this.stats = {
       moveSpeed: 375,
-      fireRate: 6.4,
-      damage: 25,
-      projectileSpeed: 1000,
+      fireRate: 5.8,
+      damage: 22,
+      projectileSpeed: 980,
       projectiles: 1,
       spreadAngle: 0,
       pierce: 0,
@@ -711,11 +712,11 @@ export class AetherGame {
       chainLightning: 0,
       homingMissiles: 0,
       orbitalBlades: 0,
-      dashCooldown: 1.3,
+      dashCooldown: 1.35,
       phantomDash: false,
       vampiricChance: 0,
       pickupRadius: 160,
-      critChance: 0.12,
+      critChance: 0.1,
       aegisShieldCooldown: 0,
       evoStorm: false,
       evoVortex: false,
@@ -732,7 +733,7 @@ export class AetherGame {
       hp: 100,
       maxHp: 100,
       xp: 0,
-      xpToNext: 65,
+      xpToNext: 85,
       level: 1,
       dashTimer: 0,
       dashDuration: 0,
@@ -839,9 +840,11 @@ export class AetherGame {
     if (this.bossActive && !attractMode) {
       this.bossDamagedPlayer = false;
       sound.playBossWarning();
+      const bossName =
+        waveNum >= 15 ? 'ПОВЕЛИТЕЛЬ БЕЗДНЫ' : waveNum >= 10 ? 'ИМПЕРАТОР ПУСТОТЫ' : 'СТРАЖ РАЗЛОМА';
       this.callbacks.onWaveBanner(
         `ВОЛНА ${String(waveNum).padStart(2, '0')} — БОСС`,
-        'ПРИБЛИЖАЕТСЯ МОНОЛИТ'
+        `ПРИБЛИЖАЕТСЯ ${bossName}`
       );
       this.spawnEnemy('boss');
     } else if (!attractMode && waveNum > 1) {
@@ -870,8 +873,16 @@ export class AetherGame {
       else kind = 'swarmer';
     }
 
-    const hpScale = this.wave === 1 ? 0.72 : this.wave === 2 ? 0.85 : 1 + (this.wave - 3) * 0.22;
-    const speedScale = this.wave === 1 ? 0.78 : this.wave === 2 ? 0.88 : 1;
+    const hpScale =
+      this.wave === 1
+        ? 0.75
+        : this.wave === 2
+        ? 0.92
+        : this.wave <= 10
+        ? 1.1 + Math.pow(this.wave - 3, 1.28) * 0.36
+        : 5.44 * Math.pow(1.22, this.wave - 10);
+    const speedScale =
+      this.wave === 1 ? 0.8 : this.wave === 2 ? 0.9 : 1 + Math.min(0.45, (this.wave - 3) * 0.045);
     let radius = 15;
     let hp = 32 * hpScale;
     let speed = (175 + Math.min(110, this.wave * 6)) * speedScale;
@@ -882,59 +893,69 @@ export class AetherGame {
     if (kind === 'bomber') {
       radius = 16;
       hp = 36 * hpScale;
-      speed = 215 + Math.min(80, this.wave * 5);
+      speed = (215 + Math.min(80, this.wave * 5)) * speedScale;
       color = '#ff7b00';
       xpValue = 16;
       scoreValue = 160;
     } else if (kind === 'shielder') {
       radius = 24;
       hp = 115 * hpScale;
-      speed = 95;
+      speed = 95 * speedScale;
       color = '#3a86ff';
       xpValue = 30;
       scoreValue = 310;
     } else if (kind === 'spawner') {
       radius = 26;
       hp = 120 * hpScale;
-      speed = 75;
+      speed = 78 * speedScale;
       color = '#00ff87';
       xpValue = 38;
       scoreValue = 380;
     } else if (kind === 'splitter') {
       radius = 22;
       hp = 68 * hpScale;
-      speed = 115 + Math.min(60, this.wave * 4);
+      speed = (115 + Math.min(60, this.wave * 4)) * speedScale;
       color = '#ff2a85';
       xpValue = 22;
       scoreValue = 220;
     } else if (kind === 'mini') {
       radius = 10;
       hp = 18 * hpScale;
-      speed = 235;
+      speed = 235 * speedScale;
       color = '#ff70a6';
       xpValue = 7;
       scoreValue = 65;
     } else if (kind === 'sniper') {
       radius = 17;
       hp = 48 * hpScale;
-      speed = 125;
+      speed = 125 * speedScale;
       color = '#ffb703';
       xpValue = 25;
       scoreValue = 260;
     } else if (kind === 'warden') {
       radius = 24;
       hp = 105 * hpScale;
-      speed = 105;
+      speed = 105 * speedScale;
       color = '#b5179e';
       xpValue = 35;
       scoreValue = 360;
     } else if (kind === 'boss') {
       radius = 54;
       hp = 980 * hpScale;
-      speed = 94;
+      speed = 98 * Math.min(1.25, speedScale);
       color = '#ff0054';
       xpValue = 180;
       scoreValue = 2500;
+    }
+
+    const eliteChance = this.wave >= 4 ? Math.min(0.26, 0.1 + (this.wave - 4) * 0.03) : 0;
+    const isElite = !forcedKind && kind !== 'mini' && kind !== 'boss' && Math.random() < eliteChance;
+    if (isElite) {
+      radius *= 1.22;
+      hp *= 1.85;
+      speed *= 1.12;
+      xpValue = Math.round(xpValue * 2);
+      scoreValue = Math.round(scoreValue * 2.2);
     }
 
     this.enemies.push({
@@ -952,12 +973,18 @@ export class AetherGame {
       color,
       xpValue,
       scoreValue,
-      shootTimer: 1.5 + Math.random() * 1.2,
+      shootTimer: 1.4 + Math.random() * 1.1,
       aimTimer: 0,
-      aimAngle: 0,
+      aimAngle: Math.atan2(this.player.y - y, this.player.x - x),
       hitFlash: 0,
       phase: 0,
       spin: (Math.random() - 0.5) * 2.5,
+      isElite,
+      flankSign: Math.random() < 0.5 ? -1 : 1,
+      attackStep: 0,
+      chargeTimer: 0,
+      chargeDirX: 0,
+      chargeDirY: 0,
     });
   }
 
@@ -1237,23 +1264,22 @@ export class AetherGame {
         for (const e of [...this.enemies]) {
           if (e.hp <= 0) continue;
           if (Math.hypot(e.x - bx, e.y - by) < e.radius + 14) {
-            this.damageEnemy(e, this.stats.damage * 0.48 * dt * 15, false);
+            this.damageEnemy(e, this.stats.damage * 0.25 * dt * 15, false);
           }
         }
       }
     }
     if (this.stats.evoVortex && !isTitle) {
       const vortexR = 86;
-      for (let i = this.bullets.length - 1; i >= 0; i--) {
-        const bul = this.bullets[i];
-        if (bul.isEnemy && Math.hypot(bul.x - p.x, bul.y - p.y) < vortexR) {
-          this.bullets.splice(i, 1);
-        }
-      }
       for (const e of [...this.enemies]) {
         if (e.hp <= 0) continue;
-        if (Math.hypot(e.x - p.x, e.y - p.y) < vortexR + e.radius) {
-          this.damageEnemy(e, this.stats.damage * 0.55 * dt * 12, false);
+        const d = Math.hypot(e.x - p.x, e.y - p.y);
+        if (d < vortexR + e.radius) {
+          this.damageEnemy(e, this.stats.damage * 0.3 * dt * 12, false);
+          if (d > 1 && e.kind !== 'boss') {
+            e.x += ((e.x - p.x) / d) * 32 * dt;
+            e.y += ((e.y - p.y) / d) * 32 * dt;
+          }
         }
       }
     }
@@ -1271,7 +1297,7 @@ export class AetherGame {
       this.powerZone && Math.hypot(p.x - this.powerZone.x, p.y - this.powerZone.y) <= this.powerZone.radius
         ? 2
         : 1;
-    const dmg = this.stats.damage * (isCrit ? 2.2 : 1) * zoneMult;
+    const dmg = this.stats.damage * (isCrit ? 1.9 : 1) * zoneMult;
 
     for (let i = 0; i < count; i++) {
       const offset =
@@ -1298,7 +1324,7 @@ export class AetherGame {
       });
     }
 
-    if (this.stats.homingMissiles > 0 && (this.stats.evoOmega || p.shotCounter % 3 === 0)) {
+    if (this.stats.homingMissiles > 0 && (this.stats.evoOmega ? p.shotCounter % 2 === 0 : p.shotCounter % 4 === 0)) {
       for (let m = 0; m < this.stats.homingMissiles; m++) {
         const side = m % 2 === 0 ? 1 : -1;
         const a = p.angle + side * (0.45 + Math.floor(m / 2) * 0.25);
@@ -1308,7 +1334,7 @@ export class AetherGame {
           vx: Math.cos(a) * (this.stats.projectileSpeed * 0.65),
           vy: Math.sin(a) * (this.stats.projectileSpeed * 0.65),
           radius: 5,
-          damage: this.stats.damage * 1.15,
+          damage: this.stats.damage * 0.85,
           isEnemy: false,
           isHoming: true,
           pierceLeft: 0,
@@ -1355,7 +1381,10 @@ export class AetherGame {
       if (this.spawnTimer <= 0) {
         this.spawnEnemy();
         this.waveSpawnRemaining--;
-        this.spawnTimer = Math.max(0.28, (this.wave === 1 ? 1.45 : this.wave === 2 ? 1.25 : 1.15) - this.wave * 0.05);
+        this.spawnTimer = Math.max(
+          0.24,
+          (this.wave === 1 ? 1.4 : this.wave === 2 ? 1.18 : 1.05) - this.wave * 0.055
+        );
       }
     } else if (this.enemies.length === 0) {
       this.waveClearDelay += dt;
@@ -1380,16 +1409,25 @@ export class AetherGame {
       const dirX = dx / dist;
       const dirY = dy / dist;
 
-      if (e.kind === 'swarmer' || e.kind === 'mini' || e.kind === 'splitter') {
+      if (e.kind === 'swarmer') {
+        const lead = (e.flankSign || 1) > 0 ? 0.42 : 0.15;
+        const tx = p.x + p.vx * lead - e.x;
+        const ty = p.y + p.vy * lead - e.y;
+        const tLen = Math.hypot(tx, ty) || 1;
+        const tDirX = tx / tLen;
+        const tDirY = ty / tLen;
+        const flank = dist > 140 ? (e.flankSign || 1) * 0.28 : 0;
+        e.vx = (tDirX - tDirY * flank) * e.speed;
+        e.vy = (tDirY + tDirX * flank) * e.speed;
+      } else if (e.kind === 'mini' || e.kind === 'splitter') {
         e.vx = dirX * e.speed;
         e.vy = dirY * e.speed;
       } else if (e.kind === 'bomber') {
         if (e.aimTimer > 0) {
-          e.vx *= 0.8;
-          e.vy *= 0.8;
+          e.vx *= 0.94;
+          e.vy *= 0.94;
           e.aimTimer -= dt;
           if (e.aimTimer <= 0) {
-            // Detonate AoE blast
             const idx = this.enemies.indexOf(e);
             if (idx !== -1) this.enemies.splice(idx, 1);
             this.spawnShockwave(e.x, e.y, 115, '#ff7b00', 5);
@@ -1401,24 +1439,32 @@ export class AetherGame {
             continue;
           }
         } else {
-          e.vx = dirX * e.speed;
-          e.vy = dirY * e.speed;
-          if (dist < 78 && !isTitle) {
-            e.aimTimer = 0.55;
+          const surge = dist < 200 ? 1.32 : 1;
+          e.vx = dirX * e.speed * surge;
+          e.vy = dirY * e.speed * surge;
+          if (dist < 95 && !isTitle) {
+            e.aimTimer = 0.5;
           }
         }
       } else if (e.kind === 'shielder') {
-        e.aimAngle = Math.atan2(dy, dx);
+        const targetA = Math.atan2(dy, dx);
+        let diff = targetA - e.aimAngle;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        const maxTurn = dt * 2.4;
+        e.aimAngle += Math.max(-maxTurn, Math.min(maxTurn, diff));
         e.vx = dirX * e.speed;
         e.vy = dirY * e.speed;
       } else if (e.kind === 'spawner') {
         const desired = 360;
-        const push = dist > desired ? 1 : dist < desired - 70 ? -0.6 : 0;
-        e.vx = dirX * e.speed * push;
-        e.vy = dirY * e.speed * push;
+        const radial = dist < 300 ? -0.9 : dist > desired + 40 ? 0.7 : 0;
+        const perpX = -dirY * (e.flankSign || 1);
+        const perpY = dirX * (e.flankSign || 1);
+        e.vx = (dirX * radial + perpX * 0.65) * e.speed;
+        e.vy = (dirY * radial + perpY * 0.65) * e.speed;
         e.shootTimer -= dt;
         if (e.shootTimer <= 0 && this.enemies.length < 48) {
-          e.shootTimer = 3.2;
+          e.shootTimer = 2.9;
           this.spawnEnemy('mini');
         }
       } else if (e.kind === 'sniper') {
@@ -1426,15 +1472,18 @@ export class AetherGame {
           e.vx *= 0.85;
           e.vy *= 0.85;
           e.aimTimer -= dt;
-          e.aimAngle = Math.atan2(dy, dx);
+          // Lead during first 0.62s, lock solid for final 0.36s
+          if (e.aimTimer > 0.36) {
+            e.aimAngle = Math.atan2(p.y + p.vy * 0.26 - e.y, p.x + p.vx * 0.26 - e.x);
+          }
           if (e.aimTimer <= 0) {
             this.bullets.push({
               x: e.x,
               y: e.y,
-              vx: Math.cos(e.aimAngle) * 760,
-              vy: Math.sin(e.aimAngle) * 760,
+              vx: Math.cos(e.aimAngle) * 860,
+              vy: Math.sin(e.aimAngle) * 860,
               radius: 5.5,
-              damage: 18,
+              damage: 20,
               isEnemy: true,
               pierceLeft: 0,
               ricochetLeft: 0,
@@ -1443,7 +1492,7 @@ export class AetherGame {
               trail: [],
               hitIds: new Set(),
             });
-            e.shootTimer = 2.6;
+            e.shootTimer = 2.5;
           }
         } else {
           const desired = 380;
@@ -1451,8 +1500,8 @@ export class AetherGame {
           e.vx = dirX * e.speed * push;
           e.vy = dirY * e.speed * push;
           e.shootTimer -= dt;
-          if (e.shootTimer <= 0 && dist < 720) {
-            e.aimTimer = 0.95;
+          if (e.shootTimer <= 0 && dist < 760) {
+            e.aimTimer = 0.98;
             e.aimAngle = Math.atan2(dy, dx);
           }
         }
@@ -1464,56 +1513,213 @@ export class AetherGame {
         e.vy = (dirY * radial + perpY * 0.85) * e.speed;
         e.shootTimer -= dt;
         if (e.shootTimer <= 0) {
-          e.shootTimer = 2.0;
-          const count = 6;
-          for (let k = 0; k < count; k++) {
-            const a = e.angle + (k * Math.PI * 2) / count;
-            this.bullets.push({
-              x: e.x,
-              y: e.y,
-              vx: Math.cos(a) * 280,
-              vy: Math.sin(a) * 280,
-              radius: 5,
-              damage: 14,
-              isEnemy: true,
-              pierceLeft: 0,
-              ricochetLeft: 0,
-              life: 3.2,
-              color: '#e0aaff',
-              trail: [],
-              hitIds: new Set(),
-            });
+          e.shootTimer = 1.9;
+          e.attackStep = (e.attackStep || 0) + 1;
+          if (e.attackStep % 2 === 1) {
+            const count = 6;
+            for (let k = 0; k < count; k++) {
+              const a = e.angle + (k * Math.PI * 2) / count;
+              this.bullets.push({
+                x: e.x,
+                y: e.y,
+                vx: Math.cos(a) * 310,
+                vy: Math.sin(a) * 310,
+                radius: 5,
+                damage: 14,
+                isEnemy: true,
+                pierceLeft: 0,
+                ricochetLeft: 0,
+                life: 3.2,
+                color: '#e0aaff',
+                trail: [],
+                hitIds: new Set(),
+              });
+            }
+          } else {
+            const baseA = Math.atan2(dy, dx);
+            for (const off of [-0.22, 0, 0.22]) {
+              const a = baseA + off;
+              this.bullets.push({
+                x: e.x,
+                y: e.y,
+                vx: Math.cos(a) * 350,
+                vy: Math.sin(a) * 350,
+                radius: 5.5,
+                damage: 15,
+                isEnemy: true,
+                pierceLeft: 0,
+                ricochetLeft: 0,
+                life: 2.8,
+                color: '#ff70a6',
+                trail: [],
+                hitIds: new Set(),
+              });
+            }
           }
         }
       } else if (e.kind === 'boss') {
         e.phase = (e.phase || 0) + dt;
-        const perpX = -dirY;
-        const perpY = dirX;
-        const radial = dist > 320 ? 1 : -0.3;
-        e.vx = (dirX * radial + perpX * 0.65) * e.speed;
-        e.vy = (dirY * radial + perpY * 0.65) * e.speed;
+        const hpRatio = e.hp / Math.max(1, e.maxHp);
 
-        e.shootTimer -= dt;
-        if (e.shootTimer <= 0) {
-          e.shootTimer = 0.72;
-          const arms = 8;
-          for (let k = 0; k < arms; k++) {
-            const a = e.phase * 1.9 + (k * Math.PI * 2) / arms;
-            this.bullets.push({
-              x: e.x,
-              y: e.y,
-              vx: Math.cos(a) * 330,
-              vy: Math.sin(a) * 330,
-              radius: 6,
-              damage: 16,
-              isEnemy: true,
-              pierceLeft: 0,
-              ricochetLeft: 0,
-              life: 3.5,
-              color: '#ff0054',
-              trail: [],
-              hitIds: new Set(),
-            });
+        if ((e.chargeTimer || 0) > 0) {
+          e.chargeTimer = (e.chargeTimer || 0) - dt;
+          e.vx = (e.chargeDirX || dirX) * e.speed * 4.2;
+          e.vy = (e.chargeDirY || dirY) * e.speed * 4.2;
+        } else {
+          const perpX = -dirY;
+          const perpY = dirX;
+          const radial = dist > 320 ? 1 : -0.3;
+          e.vx = (dirX * radial + perpX * 0.65) * e.speed;
+          e.vy = (dirY * radial + perpY * 0.65) * e.speed;
+
+          e.shootTimer -= dt;
+          if (e.shootTimer <= 0) {
+            e.attackStep = (e.attackStep || 0) + 1;
+            const step = e.attackStep;
+
+            if (hpRatio < 0.25) {
+              // Phase 3: Enraged overdrive
+              e.shootTimer = 0.46;
+              if (step % 2 === 1) {
+                const arms = 10;
+                for (let k = 0; k < arms; k++) {
+                  const a = e.phase * 2.5 + (k * Math.PI * 2) / arms;
+                  this.bullets.push({
+                    x: e.x,
+                    y: e.y,
+                    vx: Math.cos(a) * 380,
+                    vy: Math.sin(a) * 380,
+                    radius: 6,
+                    damage: 17,
+                    isEnemy: true,
+                    pierceLeft: 0,
+                    ricochetLeft: 0,
+                    life: 3.4,
+                    color: '#ff0054',
+                    trail: [],
+                    hitIds: new Set(),
+                  });
+                }
+              } else {
+                const baseA = Math.atan2(dy, dx);
+                for (let s = -3; s <= 3; s++) {
+                  const a = baseA + s * 0.14;
+                  this.bullets.push({
+                    x: e.x,
+                    y: e.y,
+                    vx: Math.cos(a) * 410,
+                    vy: Math.sin(a) * 410,
+                    radius: 6,
+                    damage: 18,
+                    isEnemy: true,
+                    pierceLeft: 0,
+                    ricochetLeft: 0,
+                    life: 3.0,
+                    color: '#ffb703',
+                    trail: [],
+                    hitIds: new Set(),
+                  });
+                }
+              }
+            } else if (hpRatio < 0.6) {
+              // Phase 2: Charge/Dash + Escorts
+              e.shootTimer = 0.58;
+              if (step % 5 === 0) {
+                e.chargeTimer = 0.55;
+                e.chargeDirX = dirX;
+                e.chargeDirY = dirY;
+                this.spawnShockwave(e.x, e.y, 130, '#ff0054', 4);
+              }
+              if (step % 6 === 0 && this.enemies.length < 40) {
+                this.spawnEnemy('swarmer');
+                this.spawnEnemy('swarmer');
+              }
+              const baseA = Math.atan2(dy, dx);
+              if (step % 2 === 0) {
+                for (let s = -2; s <= 2; s++) {
+                  const a = baseA + s * 0.16;
+                  this.bullets.push({
+                    x: e.x,
+                    y: e.y,
+                    vx: Math.cos(a) * 380,
+                    vy: Math.sin(a) * 380,
+                    radius: 6,
+                    damage: 16,
+                    isEnemy: true,
+                    pierceLeft: 0,
+                    ricochetLeft: 0,
+                    life: 3.2,
+                    color: '#ffb703',
+                    trail: [],
+                    hitIds: new Set(),
+                  });
+                }
+              } else {
+                const arms = 8;
+                for (let k = 0; k < arms; k++) {
+                  const a = e.phase * 2.1 + (k * Math.PI * 2) / arms;
+                  this.bullets.push({
+                    x: e.x,
+                    y: e.y,
+                    vx: Math.cos(a) * 350,
+                    vy: Math.sin(a) * 350,
+                    radius: 6,
+                    damage: 16,
+                    isEnemy: true,
+                    pierceLeft: 0,
+                    ricochetLeft: 0,
+                    life: 3.4,
+                    color: '#ff0054',
+                    trail: [],
+                    hitIds: new Set(),
+                  });
+                }
+              }
+            } else {
+              // Phase 1: Alternating Spiral & 5-Way Aimed Fan
+              e.shootTimer = 0.7;
+              if (step % 3 === 0) {
+                const baseA = Math.atan2(dy, dx);
+                for (let s = -2; s <= 2; s++) {
+                  const a = baseA + s * 0.15;
+                  this.bullets.push({
+                    x: e.x,
+                    y: e.y,
+                    vx: Math.cos(a) * 380,
+                    vy: Math.sin(a) * 380,
+                    radius: 6,
+                    damage: 16,
+                    isEnemy: true,
+                    pierceLeft: 0,
+                    ricochetLeft: 0,
+                    life: 3.2,
+                    color: '#ffb703',
+                    trail: [],
+                    hitIds: new Set(),
+                  });
+                }
+              } else {
+                const arms = 8;
+                for (let k = 0; k < arms; k++) {
+                  const a = e.phase * 1.9 + (k * Math.PI * 2) / arms;
+                  this.bullets.push({
+                    x: e.x,
+                    y: e.y,
+                    vx: Math.cos(a) * 340,
+                    vy: Math.sin(a) * 340,
+                    radius: 6,
+                    damage: 16,
+                    isEnemy: true,
+                    pierceLeft: 0,
+                    ricochetLeft: 0,
+                    life: 3.5,
+                    color: '#ff0054',
+                    trail: [],
+                    hitIds: new Set(),
+                  });
+                }
+              }
+            }
           }
         }
       }
@@ -1623,12 +1829,23 @@ export class AetherGame {
         if (e.hp <= 0 || b.hitIds.has(e.id)) continue;
         if (Math.hypot(b.x - e.x, b.y - e.y) < b.radius + e.radius) {
           b.hitIds.add(e.id);
-          this.damageEnemy(e, b.damage, !isTitle, b.isCrit);
+          let finalDmg = b.damage;
+          if (e.kind === 'shielder') {
+            const inAngle = Math.atan2(b.y - e.y, b.x - e.x);
+            if (Math.cos(inAngle - e.aimAngle) > 0.35) {
+              finalDmg *= 0.25;
+              this.spawnParticles(b.x, b.y, 4, '#70e0ff', 150);
+              if (this.state === 'playing' && Math.random() < 0.22) {
+                this.addFloatingText(e.x, e.y - e.radius - 6, 'БЛОК', '#70e0ff', 0.9);
+              }
+            }
+          }
+          this.damageEnemy(e, finalDmg, !isTitle, b.isCrit);
 
           if (this.stats.chainLightning > 0) {
-            const range = this.stats.evoStorm ? 420 : 235;
-            const mult = this.stats.evoStorm ? 0.85 : 0.55;
-            this.triggerChainLightning(e, this.stats.chainLightning, b.damage * mult, !isTitle, range);
+            const range = this.stats.evoStorm ? 380 : 220;
+            const mult = this.stats.evoStorm ? 0.62 : 0.42;
+            this.triggerChainLightning(e, this.stats.chainLightning, finalDmg * mult, !isTitle, range);
           }
 
           if (b.pierceLeft > 0) {
@@ -1748,7 +1965,7 @@ export class AetherGame {
       this.player.novaCharge = Math.min(100, this.player.novaCharge + (isBoss ? 50 : 4));
 
       if (this.stats.vampiricChance > 0 && Math.random() < this.stats.vampiricChance) {
-        this.player.hp = Math.min(this.player.maxHp, this.player.hp + 4);
+        this.player.hp = Math.min(this.player.maxHp, this.player.hp + 3);
       }
 
       if (allowAudio) {
@@ -1969,7 +2186,7 @@ export class AetherGame {
           if (p.xp >= p.xpToNext) {
             p.xp -= p.xpToNext;
             p.level++;
-            p.xpToNext = Math.floor(p.xpToNext * 1.28 + 25);
+            p.xpToNext = Math.floor(p.xpToNext * 1.32 + 35);
             this.triggerLevelUp();
           }
         }
@@ -1981,7 +2198,11 @@ export class AetherGame {
     const available = UPGRADES.filter((u) => {
       if ((this.acquiredUpgrades[u.id] || 0) >= u.maxStacks) return false;
       if (u.requires) {
-        return (this.acquiredUpgrades[u.requires[0]] || 0) > 0 && (this.acquiredUpgrades[u.requires[1]] || 0) > 0;
+        return (
+          this.player.level >= 5 &&
+          (this.acquiredUpgrades[u.requires[0]] || 0) > 0 &&
+          (this.acquiredUpgrades[u.requires[1]] || 0) > 0
+        );
       }
       return true;
     });
@@ -2146,7 +2367,18 @@ export class AetherGame {
       shieldReady: this.player.shieldReady,
       mode: this.mode,
       blitzTimer: Math.max(0, Math.ceil(this.blitzTimer)),
-      boss: boss ? { name: 'МОНОЛИТ ПУСТОТЫ', hp: Math.max(0, Math.ceil(boss.hp)), maxHp: boss.maxHp } : null,
+      boss: boss
+        ? {
+            name:
+              this.wave >= 15
+                ? 'ПОВЕЛИТЕЛЬ БЕЗДНЫ'
+                : this.wave >= 10
+                ? 'ИМПЕРАТОР ПУСТОТЫ'
+                : 'СТРАЖ РАЗЛОМА',
+            hp: Math.max(0, Math.ceil(boss.hp)),
+            maxHp: boss.maxHp,
+          }
+        : null,
       acquiredUpgrades: { ...this.acquiredUpgrades },
     });
   }
@@ -2648,12 +2880,24 @@ export class AetherGame {
 
     if (e.kind === 'sniper' && e.aimTimer > 0) {
       ctx.save();
-      ctx.strokeStyle = `rgba(255, 183, 3, ${0.3 + (1 - e.aimTimer) * 0.65})`;
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([8, 6]);
+      const locked = e.aimTimer <= 0.36;
+      ctx.strokeStyle = locked ? 'rgba(255, 50, 50, 0.95)' : `rgba(255, 183, 3, ${0.35 + (1 - e.aimTimer) * 0.55})`;
+      ctx.lineWidth = locked ? 2.4 : 1.5;
+      if (!locked) ctx.setLineDash([8, 6]);
       ctx.beginPath();
       ctx.moveTo(e.x, e.y);
       ctx.lineTo(e.x + Math.cos(e.aimAngle) * 850, e.y + Math.sin(e.aimAngle) * 850);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    if (e.isElite) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255, 183, 3, 0.72)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 5]);
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, e.radius + 7 + Math.sin(this.time * 6) * 1.5, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }

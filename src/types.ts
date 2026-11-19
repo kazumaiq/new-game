@@ -121,6 +121,12 @@ export interface Enemy {
   hitFlash: number;
   phase?: number;
   spin: number;
+  isElite?: boolean;
+  flankSign?: number;
+  attackStep?: number;
+  chargeTimer?: number;
+  chargeDirX?: number;
+  chargeDirY?: number;
 }
 
 export interface PowerUp {
