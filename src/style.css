@@ -6,6 +6,24 @@
   --border-glass: rgba(255, 255, 255, 0.14);
   --text-main: #f4f7ff;
   --text-dim: #9aa7c7;
+  --tg-top-pad: 0px;
+  --tg-bottom-pad: 0px;
+  --safe-top: max(
+    12px,
+    var(--tg-top-pad, 0px),
+    calc(
+      max(env(safe-area-inset-top, 0px), var(--tg-safe-area-inset-top, 0px)) +
+        var(--tg-content-safe-area-inset-top, 0px) + 10px
+    )
+  );
+  --safe-bottom: max(
+    14px,
+    var(--tg-bottom-pad, 0px),
+    calc(
+      max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px)) +
+        var(--tg-content-safe-area-inset-bottom, 0px) + 10px
+    )
+  );
 }
 
 * {
@@ -132,8 +150,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right))
-    max(16px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+  padding: var(--safe-top) max(14px, env(safe-area-inset-right))
+    var(--safe-bottom) max(14px, env(safe-area-inset-left));
   background: radial-gradient(circle at center, rgba(4, 7, 18, 0.35), rgba(2, 3, 8, 0.82));
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
@@ -692,8 +710,8 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: max(12px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right))
-    max(14px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+  padding: var(--safe-top) max(14px, env(safe-area-inset-right))
+    var(--safe-bottom) max(14px, env(safe-area-inset-left));
 }
 
 .hud-top-stack {
@@ -1235,7 +1253,7 @@ body {
 /* WAVE BANNER */
 .wave-banner {
   position: fixed;
-  top: 90px;
+  top: calc(var(--safe-top) + 78px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 25;
@@ -1845,8 +1863,17 @@ body {
 
   /* 2-row Mobile HUD */
   .hud {
-    padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right))
-      max(12px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+    padding: var(--safe-top) max(10px, env(safe-area-inset-right))
+      var(--safe-bottom) max(10px, env(safe-area-inset-left));
+  }
+
+  .lobby-hero {
+    padding: 14px 14px;
+    gap: 9px;
+  }
+
+  .game-title {
+    font-size: clamp(1.85rem, 6.2vw, 2.8rem);
   }
 
   .hud-top {
@@ -1898,7 +1925,7 @@ body {
   }
 
   .wave-banner {
-    top: calc(max(12px, env(safe-area-inset-top)) + 148px);
+    top: calc(var(--safe-top) + 138px);
   }
 
   .hud-bottom {

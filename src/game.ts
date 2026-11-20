@@ -3416,7 +3416,7 @@ export class AetherGame {
 
   private renderOffscreenIndicators(ctx: CanvasRenderingContext2D, offsetX: number, offsetY: number): void {
     const padX = 30;
-    const padTop = this.isTouchDevice ? 148 : 96;
+    const padTop = this.isTouchDevice ? 195 : 108;
     const padBottom = this.isTouchDevice ? 112 : 90;
     const halfW = this.width / 2;
     const halfH = this.height / 2;

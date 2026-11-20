@@ -121,6 +121,11 @@ const tgApp = (window as unknown as {
       ready: () => void;
       expand: () => void;
       initData?: string;
+      platform?: string;
+      isFullscreen?: boolean;
+      safeAreaInset?: { top?: number; bottom?: number; left?: number; right?: number };
+      contentSafeAreaInset?: { top?: number; bottom?: number; left?: number; right?: number };
+      onEvent?: (eventType: string, callback: () => void) => void;
       setHeaderColor?: (c: string) => void;
       setBackgroundColor?: (c: string) => void;
       disableVerticalSwipes?: () => void;
@@ -136,6 +141,31 @@ const tgApp = (window as unknown as {
 
 const tgInitData = tgApp?.initData || '';
 const tgUser = tgApp?.initDataUnsafe?.user;
+const isInsideTelegram = Boolean(
+  tgApp &&
+    (tgApp.initData ||
+      tgApp.initDataUnsafe?.user ||
+      (tgApp.platform && tgApp.platform !== 'unknown'))
+);
+
+function applyTelegramSafeArea(): void {
+  if (!tgApp || !isInsideTelegram) return;
+  const safeTop = Number(tgApp.safeAreaInset?.top) || 0;
+  const contentTop = Number(tgApp.contentSafeAreaInset?.top) || 0;
+  const safeBottom = Number(tgApp.safeAreaInset?.bottom) || 0;
+  const contentBottom = Number(tgApp.contentSafeAreaInset?.bottom) || 0;
+  const platform = (tgApp.platform || '').toLowerCase();
+  const isMobileTg = platform === 'ios' || platform === 'android';
+
+  // Гарантированный отступ под верхние плавающие кнопки Telegram («Закрыть» и меню «...»)
+  const minTop = tgApp.isFullscreen ? (isMobileTg ? 94 : 56) : isMobileTg ? 56 : 44;
+  const topPx = Math.max(minTop, safeTop + contentTop + 10);
+  const botPx = Math.max(14, safeBottom + contentBottom + 10);
+
+  document.documentElement.style.setProperty('--tg-top-pad', `${topPx}px`);
+  document.documentElement.style.setProperty('--tg-bottom-pad', `${botPx}px`);
+}
+
 const adAudioCallbacks = {
   onOpen: () => sound.setAdMuted(true),
   onClose: () => sound.setAdMuted(false),
@@ -148,6 +178,11 @@ if (tgApp) {
   tgApp.setBackgroundColor?.('#03040a');
   tgApp.disableVerticalSwipes?.();
   tgApp.enableClosingConfirmation?.();
+  applyTelegramSafeArea();
+  tgApp.onEvent?.('safeAreaChanged', applyTelegramSafeArea);
+  tgApp.onEvent?.('contentSafeAreaChanged', applyTelegramSafeArea);
+  tgApp.onEvent?.('viewportChanged', applyTelegramSafeArea);
+  tgApp.onEvent?.('fullscreenChanged', applyTelegramSafeArea);
   if (tgUser?.id) {
     profile.playerId = `tg_${String(tgUser.id)}`;
   }
