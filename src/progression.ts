@@ -125,9 +125,11 @@ export const SEASON_XP_PER_TIER = 350;
 
 export function getSeasonInfo(): { seasonId: number; daysLeft: number; name: string } {
   const epochDays = Math.floor(Date.now() / 86400000);
+  const baseEpochDay = 20778; // Старт Сезона 1 (2026-11-20)
   const seasonLen = 30;
-  const seasonId = Math.max(1, Math.floor((epochDays - 20000) / seasonLen) + 1);
-  const dayInSeason = ((epochDays - 20000) % seasonLen + seasonLen) % seasonLen;
+  const elapsed = Math.max(0, epochDays - baseEpochDay);
+  const seasonId = Math.floor(elapsed / seasonLen) + 1;
+  const dayInSeason = elapsed % seasonLen;
   const daysLeft = Math.max(1, seasonLen - dayInSeason);
   return { seasonId, daysLeft, name: `СЕЗОН ${seasonId}: НЕОНОВЫЙ РАЗЛОМ` };
 }
@@ -586,11 +588,14 @@ export function loadProfile(): PlayerProfile {
   if (!Array.isArray(profile.unlockedFrames)) profile.unlockedFrames = ['default'];
   if (!profile.selectedFrame) profile.selectedFrame = 'default';
   if (profile.seasonId !== season.seasonId) {
+    const advancingToNewSeason = profile.seasonId !== undefined && profile.seasonId < season.seasonId;
     profile.seasonId = season.seasonId;
-    profile.seasonXp = 0;
-    profile.seasonPremium = false;
-    profile.claimedFreeTiers = [];
-    profile.claimedPremiumTiers = [];
+    if (advancingToNewSeason) {
+      profile.seasonXp = 0;
+      profile.seasonPremium = false;
+      profile.claimedFreeTiers = [];
+      profile.claimedPremiumTiers = [];
+    }
   }
   if (!Array.isArray(profile.claimedFreeTiers)) profile.claimedFreeTiers = [];
   if (!Array.isArray(profile.claimedPremiumTiers)) profile.claimedPremiumTiers = [];
