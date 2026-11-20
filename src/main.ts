@@ -11,7 +11,18 @@ import {
   saveCloudProfile,
   submitGlobalScore,
 } from './leaderboard';
-import { initYandexSdk, openTelegramStarsInvoice, showRewardedAd } from './monetization';
+import {
+  initYandexSdk,
+  isYandexPlatform,
+  loadYandexPlayerInfo,
+  openTelegramStarsInvoice,
+  saveYandexCloudProfile,
+  showInterstitialAd,
+  showRewardedAd,
+  submitYandexLeaderboardScore,
+  yandexGameplayStart,
+  yandexGameplayStop,
+} from './monetization';
 import { CoopNetwork } from './network';
 import {
   ACHIEVEMENTS,
@@ -124,6 +135,11 @@ const tgApp = (window as unknown as {
 }).Telegram?.WebApp;
 
 const tgInitData = tgApp?.initData || '';
+const tgUser = tgApp?.initDataUnsafe?.user;
+const adAudioCallbacks = {
+  onOpen: () => sound.setAdMuted(true),
+  onClose: () => sound.setAdMuted(false),
+};
 
 if (tgApp) {
   tgApp.ready();
@@ -132,7 +148,6 @@ if (tgApp) {
   tgApp.setBackgroundColor?.('#03040a');
   tgApp.disableVerticalSwipes?.();
   tgApp.enableClosingConfirmation?.();
-  const tgUser = tgApp.initDataUnsafe?.user;
   if (tgUser?.id) {
     profile.playerId = `tg_${String(tgUser.id)}`;
   }
@@ -142,7 +157,35 @@ if (tgApp) {
   saveProfile(profile);
 }
 
-void initYandexSdk();
+void initYandexSdk({
+  onPause: () => {
+    sound.setAdMuted(true);
+    game.pauseIfPlaying();
+  },
+  onResume: () => {
+    sound.setAdMuted(false);
+  },
+}).then(async (ok) => {
+  if (!ok) return;
+  const yaInfo = await loadYandexPlayerInfo();
+  if (!yaInfo) return;
+  if (!tgUser?.id && yaInfo.id) {
+    profile.playerId = `ya_${yaInfo.id}`;
+  }
+  if (yaInfo.name && profile.callsign.startsWith('ПИЛОТ-')) {
+    profile.callsign = yaInfo.name.slice(0, 14).toUpperCase();
+  }
+  if (yaInfo.savedProfile) {
+    const savedScore = Number(yaInfo.savedProfile.totalScore) || 0;
+    if (savedScore >= profile.totalScore) {
+      profile = { ...profile, ...(yaInfo.savedProfile as Partial<typeof profile>) };
+    }
+  }
+  saveProfile(profile);
+  game.setProfile(profile);
+  refreshLobbyUI();
+});
+
 trackEvent('session_start', { tg: Boolean(tgInitData) }, profile.playerId);
 
 // Синхронизация профиля из облака Supabase по неизменяемому playerId
@@ -155,8 +198,8 @@ void fetchCloudProfile(profile.playerId, tgInitData).then((cloud) => {
   }
 });
 
-// PWA Service Worker
-if ('serviceWorker' in navigator) {
+// PWA Service Worker (не регистрируем внутри iframe Яндекс Игр)
+if ('serviceWorker' in navigator && !isYandexPlatform()) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').catch(() => undefined);
   });
@@ -233,16 +276,21 @@ const game = new AetherGame(canvas, {
   },
   onAchievement: unlockAchievement,
   onAbyssChoice: () => {
+    pauseScreen.classList.add('hidden');
     abyssScreen.classList.remove('hidden');
   },
   onReviveOffer: () => {
+    pauseScreen.classList.add('hidden');
     const shardsBtn = el<HTMLButtonElement>('btn-revive-shards');
     shardsBtn.disabled = profile.shards < 50;
     el('ad-progress-box').classList.add('hidden');
     el<HTMLButtonElement>('btn-revive-ad').disabled = false;
     reviveScreen.classList.remove('hidden');
   },
-  onRelicChoice: (relics) => renderRelicChoice(relics),
+  onRelicChoice: (relics) => {
+    pauseScreen.classList.add('hidden');
+    renderRelicChoice(relics);
+  },
   onWaveReached: (wave) => {
     if (wave >= 2) trackEvent('wave_reached', { wave, mode: selectedSoloMode }, profile.playerId);
   },
@@ -976,11 +1024,25 @@ function updateMuteIcon(): void {
 }
 
 function renderHud(hud: HudSnapshot): void {
-  const showHud = hud.state === 'playing' || hud.state === 'paused' || hud.state === 'levelup';
+  const showHud =
+    hud.state === 'playing' ||
+    hud.state === 'paused' ||
+    hud.state === 'levelup' ||
+    hud.state === 'modal';
   hudEl.classList.toggle('hidden', !showHud);
-  pauseScreen.classList.toggle('hidden', hud.state !== 'paused');
+  const otherModalOpen =
+    !reviveScreen.classList.contains('hidden') ||
+    !relicScreen.classList.contains('hidden') ||
+    !abyssScreen.classList.contains('hidden') ||
+    !levelupScreen.classList.contains('hidden');
+  pauseScreen.classList.toggle('hidden', hud.state !== 'paused' || otherModalOpen);
   if (isTouch) {
     touchLayer.classList.toggle('hidden', hud.state !== 'playing');
+  }
+  if (hud.state === 'playing') {
+    yandexGameplayStart();
+  } else {
+    yandexGameplayStop();
   }
 
   const vitals = el('hud-vitals');
@@ -1170,9 +1232,11 @@ function handleGameOver(summary: {
   }
   saveProfile(profile);
   void saveCloudProfile(profile, tgInitData);
+  void saveYandexCloudProfile(profile);
   refreshLobbyUI();
 
   const shipDef = SHIP_CLASSES.find((s) => s.id === profile.selectedShip) || SHIP_CLASSES[0];
+  void submitYandexLeaderboardScore(summary.score);
   void submitGlobalScore(
     {
       player_id: profile.playerId,
@@ -1309,13 +1373,13 @@ async function renderScoresModal(): Promise<void> {
 }
 
 async function shareOrCopy(title: string, text: string, url: string, btn: HTMLElement, resetHtml: string): Promise<void> {
-  if (tgInitData && tgApp?.openTelegramLink) {
+  if (tgInitData && tgApp?.openTelegramLink && !isYandexPlatform()) {
     tgApp.openTelegramLink(
       `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`
     );
     return;
   }
-  if (navigator.share) {
+  if (navigator.share && !isYandexPlatform()) {
     try {
       await navigator.share({ title, text, url });
       return;
@@ -1521,13 +1585,14 @@ el('btn-capsule-ad').onclick = async () => {
   adBtn.disabled = true;
   const ok = await showRewardedAd((sec) => {
     adBtn.textContent = sec > 0 ? `РЕКЛАМА: ${sec} СЕК...` : 'ОТКРЫВАЕМ...';
-  });
+  }, adAudioCallbacks);
   if (ok) {
     profile.extraCapsuleAdToday = true;
     const msg = rollCapsuleReward();
     sound.playLevelUp();
     saveProfile(profile);
     void saveCloudProfile(profile, tgInitData);
+    void saveYandexCloudProfile(profile);
     trackEvent('ad_watched', { slot: 'extra_capsule' }, profile.playerId);
     refreshLobbyUI();
     el('capsule-result').textContent = msg;
@@ -1542,16 +1607,18 @@ el('btn-revive-ad').onclick = async () => {
   const adBtn = el<HTMLButtonElement>('btn-revive-ad');
   const box = el('ad-progress-box');
   adBtn.disabled = true;
+  pauseScreen.classList.add('hidden');
   box.classList.remove('hidden');
   box.textContent = 'Загрузка рекламного блока...';
 
   const ok = await showRewardedAd((sec) => {
     box.textContent = sec > 0 ? `Спонсорский блок: осталось ${sec} сек...` : 'Готово! Реанимация...';
-  });
+  }, adAudioCallbacks);
 
   if (ok) {
     trackEvent('ad_watched', { slot: 'revive' }, profile.playerId);
     reviveScreen.classList.add('hidden');
+    pauseScreen.classList.add('hidden');
     game.revivePlayer();
   } else {
     box.textContent = 'Не удалось загрузить рекламу. Попробуй снова или используй Осколки.';
@@ -1564,13 +1631,16 @@ el('btn-revive-shards').onclick = () => {
   profile.shards -= 50;
   saveProfile(profile);
   void saveCloudProfile(profile, tgInitData);
+  void saveYandexCloudProfile(profile);
   refreshLobbyUI();
   reviveScreen.classList.add('hidden');
+  pauseScreen.classList.add('hidden');
   game.revivePlayer();
 };
 
 el('btn-revive-skip').onclick = () => {
   reviveScreen.classList.add('hidden');
+  pauseScreen.classList.add('hidden');
   game.declineRevive();
 };
 
@@ -1584,13 +1654,14 @@ el('btn-double-shards').onclick = async () => {
 
   const ok = await showRewardedAd((sec) => {
     statusBox.textContent = sec > 0 ? `Спонсорский блок: осталось ${sec} сек...` : 'Удваиваем Осколки!';
-  });
+  }, adAudioCallbacks);
 
   if (ok) {
     doubledShardsUsed = true;
     profile.shards += lastRunEarnedShards;
     saveProfile(profile);
     void saveCloudProfile(profile, tgInitData);
+    void saveYandexCloudProfile(profile);
     trackEvent('ad_watched', { slot: 'double_shards', extra: lastRunEarnedShards }, profile.playerId);
     refreshLobbyUI();
     el('go-shards').textContent = `+${lastRunEarnedShards * 2}`;
@@ -1712,13 +1783,15 @@ el('btn-mute').onclick = () => {
 el('btn-dash').onclick = () => game.triggerDash();
 el('btn-nova').onclick = () => game.triggerNova();
 
-el('btn-retry').onclick = () => {
+el('btn-retry').onclick = async () => {
+  await showInterstitialAd(adAudioCallbacks);
   gameoverScreen.classList.add('hidden');
   game.setProfile(profile);
   game.startNewGame();
   trackEvent('run_start', { mode: game.mode, ship: profile.selectedShip }, profile.playerId);
 };
-el('btn-go-menu').onclick = () => {
+el('btn-go-menu').onclick = async () => {
+  await showInterstitialAd(adAudioCallbacks);
   gameoverScreen.classList.add('hidden');
   game.returnToTitle();
   titleScreen.classList.remove('hidden');
@@ -1785,6 +1858,23 @@ if (roomParam) {
 // ==================== INPUT LISTENERS ====================
 window.addEventListener('resize', () => game.resize());
 window.visualViewport?.addEventListener('resize', () => game.resize());
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    sound.setAdMuted(true);
+    game.pauseIfPlaying();
+  } else {
+    sound.setAdMuted(false);
+  }
+});
+window.addEventListener('blur', () => {
+  sound.setAdMuted(true);
+  game.pauseIfPlaying();
+});
+window.addEventListener('focus', () => {
+  sound.setAdMuted(false);
+});
+document.addEventListener('contextmenu', (e) => e.preventDefault());
 
 window.addEventListener('keydown', (e) => {
   if (!relicScreen.classList.contains('hidden') && activeRelicChoices.length > 0) {

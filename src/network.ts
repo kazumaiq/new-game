@@ -22,6 +22,23 @@ export interface NetCallbacks {
   onDisconnect: () => void;
 }
 
+function getIceServers(): RTCIceServer[] {
+  const servers: RTCIceServer[] = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:global.stun.twilio.com:3478' },
+  ];
+  const turnUrl = import.meta.env.VITE_TURN_URL || '';
+  if (turnUrl) {
+    servers.push({
+      urls: turnUrl,
+      username: import.meta.env.VITE_TURN_USER || undefined,
+      credential: import.meta.env.VITE_TURN_CRED || undefined,
+    });
+  }
+  return servers;
+}
+
 export class CoopNetwork {
   private peer: Peer | null = null;
   private conn: DataConnection | null = null;
@@ -34,14 +51,16 @@ export class CoopNetwork {
     this.callbacks = callbacks;
   }
 
-  public createRoom(callsign: string, color: string): void {
+  public createRoom(callsign: string, color: string, retryOnCollision = true): void {
     this.disconnect();
     this.role = 'host';
     this.roomCode = String(Math.floor(1000 + Math.random() * 8999));
     const peerId = `aetherrift-${this.roomCode}`;
 
     this.callbacks.onStatus(`Создание комнаты ${this.roomCode}...`, false);
-    this.peer = new Peer(peerId);
+    this.peer = new Peer(peerId, {
+      config: { iceServers: getIceServers() },
+    });
 
     this.peer.on('open', () => {
       this.callbacks.onStatus(`Комната ${this.roomCode} готова! Ждём напарника...`, false);
@@ -53,6 +72,10 @@ export class CoopNetwork {
     });
 
     this.peer.on('error', (err) => {
+      if (err.type === 'unavailable-id' && retryOnCollision) {
+        this.createRoom(callsign, color, false);
+        return;
+      }
       this.callbacks.onStatus(`Ошибка сети: ${err.type}`, false);
     });
   }
@@ -65,7 +88,9 @@ export class CoopNetwork {
     this.roomCode = clean;
 
     this.callbacks.onStatus(`Подключение к комнате ${clean}...`, false);
-    this.peer = new Peer();
+    this.peer = new Peer({
+      config: { iceServers: getIceServers() },
+    });
 
     this.peer.on('open', () => {
       if (!this.peer) return;

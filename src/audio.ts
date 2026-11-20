@@ -7,6 +7,7 @@ class SoundEngine {
   private step = 0;
   private lastTimes: Record<string, number> = {};
   private noiseBuffer: AudioBuffer | null = null;
+  private adMuted = false;
 
   public soundEnabled = true;
   public musicEnabled = true;
@@ -31,7 +32,7 @@ class SoundEngine {
 
     this.ctx = new AudioCtx();
     this.masterGain = this.ctx.createGain();
-    this.masterGain.gain.value = 0.7;
+    this.masterGain.gain.value = this.adMuted ? 0 : 0.7;
     this.masterGain.connect(this.ctx.destination);
 
     this.sfxGain = this.ctx.createGain();
@@ -47,6 +48,17 @@ class SoundEngine {
     this.soundEnabled = enabled;
     if (this.sfxGain && this.ctx) {
       this.sfxGain.gain.setTargetAtTime(enabled ? 0.55 : 0, this.ctx.currentTime, 0.03);
+    }
+  }
+
+  public setAdMuted(muted: boolean): void {
+    this.adMuted = muted;
+    if (!this.ctx || !this.masterGain) return;
+    this.masterGain.gain.setValueAtTime(muted ? 0 : 0.7, this.ctx.currentTime);
+    if (muted) {
+      void this.ctx.suspend().catch(() => undefined);
+    } else {
+      void this.ctx.resume().catch(() => undefined);
     }
   }
 

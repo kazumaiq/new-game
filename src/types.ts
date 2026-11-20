@@ -1,4 +1,4 @@
-export type GameState = 'title' | 'playing' | 'paused' | 'levelup' | 'gameover';
+export type GameState = 'title' | 'playing' | 'paused' | 'levelup' | 'modal' | 'gameover';
 
 export type GameMode = 'classic' | 'blitz' | 'daily' | 'mutator' | 'coop' | 'pvp';
 

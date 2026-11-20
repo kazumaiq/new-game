@@ -1,4 +1,4 @@
-const CACHE_NAME = 'aether-rift-v3';
+const CACHE_NAME = 'aether-rift-v4';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', (event) => {
@@ -18,7 +18,7 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return;
+  if (event.request.method !== 'GET' || event.request.url.includes('/api/')) return;
   event.respondWith(
     fetch(event.request)
       .then((res) => {

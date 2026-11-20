@@ -459,6 +459,13 @@ export class AetherGame {
     }
   }
 
+  public pauseIfPlaying(): void {
+    if (this.state === 'playing') {
+      this.state = 'paused';
+      this.pushHud();
+    }
+  }
+
   public returnToTitle(): void {
     this.resetRun(true);
     this.state = 'title';
@@ -1205,7 +1212,12 @@ export class AetherGame {
   private update(dt: number): void {
     this.time += dt;
 
-    if (this.state === 'paused' || this.state === 'levelup' || this.state === 'gameover') {
+    if (
+      this.state === 'paused' ||
+      this.state === 'levelup' ||
+      this.state === 'modal' ||
+      this.state === 'gameover'
+    ) {
       return;
     }
 
@@ -2576,14 +2588,14 @@ export class AetherGame {
           this.callbacks.onRelicChoice
         ) {
           this.relicOffered = true;
-          this.state = 'paused';
+          this.state = 'modal';
           this.pushHud();
           this.callbacks.onRelicChoice(['relic_blackhole', 'relic_dashnova', 'relic_echo']);
           return;
         }
         if (this.mode === 'classic' && this.wave >= 10 && !this.inAbyss && this.state === 'playing') {
           this.callbacks.onAchievement?.('ach_first_win');
-          this.state = 'paused';
+          this.state = 'modal';
           this.pushHud();
           this.callbacks.onAbyssChoice?.();
           return;
@@ -2738,7 +2750,7 @@ export class AetherGame {
     if (p.hp <= 0) {
       p.hp = 0;
       if (!this.reviveUsed && this.mode !== 'pvp' && this.callbacks.onReviveOffer) {
-        this.state = 'paused';
+        this.state = 'modal';
         this.pushHud();
         this.callbacks.onReviveOffer();
         return;
