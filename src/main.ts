@@ -87,6 +87,8 @@ const recorder = new HighlightRecorder();
 let activeUpgradeChoices: UpgradeDef[] = [];
 let activeRelicChoices: RelicId[] = [];
 let waveBannerTimer: number | null = null;
+let lastHudHp = -1;
+let hpFlashTimer: number | null = null;
 let lastChallengeUrl = '';
 let lastRunScore = 0;
 let lastRunEarnedShards = 0;
@@ -981,13 +983,34 @@ function renderHud(hud: HudSnapshot): void {
     touchLayer.classList.toggle('hidden', hud.state !== 'playing');
   }
 
-  el('hp-bar').style.width = `${Math.max(0, (hud.hp / hud.maxHp) * 100)}%`;
-  el('hp-text').textContent = `${hud.hp}/${hud.maxHp}`;
-  el('lvl-label').textContent = `УР. ${hud.level}`;
+  const vitals = el('hud-vitals');
+  const hpPct = Math.max(0, Math.min(1, hud.hp / Math.max(1, hud.maxHp)));
+  el('hp-bar').style.width = `${hpPct * 100}%`;
+  el('hp-trail-bar').style.width = `${hpPct * 100}%`;
+  el('hp-text').textContent = `${hud.hp} / ${hud.maxHp}`;
+
+  vitals.classList.remove('hp-state-high', 'hp-state-mid', 'hp-state-low');
+  vitals.classList.add(hpPct > 0.6 ? 'hp-state-high' : hpPct > 0.3 ? 'hp-state-mid' : 'hp-state-low');
+  el('hp-label').innerHTML = `${ICONS.hp} ${hpPct <= 0.3 ? 'КРИТ. ХП!' : 'ХП КОРАБЛЯ'}`;
+
+  if (hud.state === 'playing') {
+    if (lastHudHp !== -1 && hud.hp !== lastHudHp) {
+      vitals.classList.remove('hp-hit', 'hp-heal');
+      vitals.classList.add(hud.hp < lastHudHp ? 'hp-hit' : 'hp-heal');
+      if (hpFlashTimer !== null) clearTimeout(hpFlashTimer);
+      hpFlashTimer = window.setTimeout(() => vitals.classList.remove('hp-hit', 'hp-heal'), 280);
+    }
+    lastHudHp = hud.hp;
+  } else {
+    lastHudHp = -1;
+  }
+
+  el('lvl-label').textContent = `ОПЫТ · УР. ${hud.level}`;
   el('xp-bar').style.width = `${Math.min(100, (hud.xp / hud.xpToNext) * 100)}%`;
   el('hud-mode-label').textContent =
     hud.mode === 'pvp' ? 'ДУЭЛЬ' : hud.mode === 'daily' ? 'ДЕНЬ' : hud.mode === 'mutator' ? 'МУТАТОР' : 'ВОЛНА';
   el('hud-wave').textContent = hud.mode === 'pvp' ? '1v1' : String(hud.wave).padStart(2, '0');
+  el('wave-prog-bar').style.width = `${Math.round(hud.waveProgress * 100)}%`;
   el('hud-score').textContent = hud.score.toLocaleString('ru-RU');
 
   const biomePill = el('biome-pill');

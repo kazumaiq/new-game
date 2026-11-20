@@ -42,6 +42,7 @@ export const ICONS = {
   friends: svg('<circle cx="9" cy="7" r="3.5"/><path d="M2 20v-1.5A4.5 4.5 0 0 1 6.5 14h5A4.5 4.5 0 0 1 16 18.5V20"/><circle cx="17" cy="8" r="2.8"/><path d="M22 20v-1a3.5 3.5 0 0 0-3-3.46"/>'),
   crown: svg('<path d="M3 18h18"/><path d="M4 15l2-9 6 4 6-4 2 9z"/>'),
   copy: svg('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>'),
+  hp: svg('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>'),
 };
 
 export type IconKey = keyof typeof ICONS;

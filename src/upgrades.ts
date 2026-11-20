@@ -89,7 +89,7 @@ export const UPGRADES: UpgradeDef[] = [
     tag: 'ЛЕЧЕНИЕ',
     rarity: 'rare',
     icon: ICONS.plus,
-    description: 'Сразу лечит +15 ХП и даёт +7% шанс вылечиться за убийство.',
+    description: 'Сразу лечит +20 ХП и даёт +8% шанс вылечить +4 ХП за убийство.',
     maxStacks: 3,
   },
   {

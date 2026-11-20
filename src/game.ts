@@ -48,6 +48,7 @@ export interface HudSnapshot {
   biomeName: string;
   mutatorName: string;
   activeRelic: RelicId | null;
+  waveProgress: number;
   boss: { name: string; hp: number; maxHp: number } | null;
   acquiredUpgrades: Record<string, number>;
 }
@@ -207,6 +208,11 @@ export class AetherGame {
   private ghostRecordTimer = 0;
   private savedGhost: GhostSample[] = [];
   private savedGhostScore = 0;
+  private killsSinceHealDrop = 0;
+  private waveTotalCount = 6;
+  private pendingSpawns: Array<{ x: number; y: number; kind: EnemyKind; timer: number; maxTimer: number }> = [];
+  private hullSparkTimer = 0;
+  private dashWasCooling = false;
   private coopRole: NetRole = 'none';
   private remotePlayer: RemotePlayerState = {
     connected: false,
@@ -757,8 +763,8 @@ export class AetherGame {
         this.player.shieldTimer = 0;
         break;
       case 'vampiric':
-        this.stats.vampiricChance = Math.min(0.24, this.stats.vampiricChance + 0.07);
-        this.player.hp = Math.min(this.player.maxHp, this.player.hp + 15);
+        this.stats.vampiricChance = Math.min(0.28, this.stats.vampiricChance + 0.08);
+        this.player.hp = Math.min(this.player.maxHp, this.player.hp + 20);
         break;
       case 'thrusters':
         this.stats.moveSpeed *= 1.12;
@@ -901,6 +907,11 @@ export class AetherGame {
     this.ghostRecordTimer = 0;
     this.savedGhost = [];
     this.savedGhostScore = 0;
+    this.killsSinceHealDrop = 0;
+    this.waveTotalCount = 6;
+    this.pendingSpawns = [];
+    this.hullSparkTimer = 0;
+    this.dashWasCooling = false;
 
     this.cryoZones = [
       { x: 640, y: 540, radius: 195 },
@@ -1003,6 +1014,7 @@ export class AetherGame {
     this.bossActive = waveNum % 5 === 0;
     this.waveSpawnRemaining =
       this.bossActive ? 6 + waveNum : waveNum === 1 ? 6 : waveNum === 2 ? 10 : 8 + waveNum * 4;
+    this.waveTotalCount = this.waveSpawnRemaining + (this.bossActive ? 1 : 0);
     this.spawnTimer = waveNum === 1 ? 0.8 : 0.4;
 
     if (!attractMode) {
@@ -1030,23 +1042,47 @@ export class AetherGame {
     }
   }
 
-  private spawnEnemy(forcedKind?: EnemyKind): void {
+  private pickEnemyKind(): EnemyKind {
+    const r = Math.random();
+    if (this.wave >= 5 && r < 0.12) return 'spawner';
+    if (this.wave >= 4 && r < 0.25) return 'shielder';
+    if (this.wave >= 4 && r < 0.38) return 'warden';
+    if (this.wave >= 3 && r < 0.54) return 'sniper';
+    if (this.wave >= 2 && r < 0.7) return 'bomber';
+    if (this.wave >= 2 && r < 0.84) return 'splitter';
+    return 'swarmer';
+  }
+
+  private queueEnemySpawn(): void {
+    if (this.pendingSpawns.length >= 20) {
+      this.spawnEnemy();
+      return;
+    }
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 360 + Math.random() * 240;
+    let x = Math.max(64, Math.min(this.arenaW - 64, this.player.x + Math.cos(angle) * dist));
+    let y = Math.max(64, Math.min(this.arenaH - 64, this.player.y + Math.sin(angle) * dist));
+    if (Math.hypot(x - this.player.x, y - this.player.y) < 300) {
+      x = Math.max(64, Math.min(this.arenaW - 64, this.player.x - Math.cos(angle) * dist));
+      y = Math.max(64, Math.min(this.arenaH - 64, this.player.y - Math.sin(angle) * dist));
+    }
+    const kind = this.pickEnemyKind();
+    this.pendingSpawns.push({ x, y, kind, timer: 0.65, maxTimer: 0.65 });
+  }
+
+  private spawnEnemy(forcedKind?: EnemyKind, forcedX?: number, forcedY?: number): void {
     const angle = Math.random() * Math.PI * 2;
     const dist = 480 + Math.random() * 240;
-    const x = Math.max(60, Math.min(this.arenaW - 60, this.player.x + Math.cos(angle) * dist));
-    const y = Math.max(60, Math.min(this.arenaH - 60, this.player.y + Math.sin(angle) * dist));
+    const x =
+      forcedX !== undefined
+        ? forcedX
+        : Math.max(60, Math.min(this.arenaW - 60, this.player.x + Math.cos(angle) * dist));
+    const y =
+      forcedY !== undefined
+        ? forcedY
+        : Math.max(60, Math.min(this.arenaH - 60, this.player.y + Math.sin(angle) * dist));
 
-    let kind: EnemyKind = forcedKind ?? 'swarmer';
-    if (!forcedKind) {
-      const r = Math.random();
-      if (this.wave >= 5 && r < 0.12) kind = 'spawner';
-      else if (this.wave >= 4 && r < 0.25) kind = 'shielder';
-      else if (this.wave >= 4 && r < 0.38) kind = 'warden';
-      else if (this.wave >= 3 && r < 0.54) kind = 'sniper';
-      else if (this.wave >= 2 && r < 0.7) kind = 'bomber';
-      else if (this.wave >= 2 && r < 0.84) kind = 'splitter';
-      else kind = 'swarmer';
-    }
+    const kind: EnemyKind = forcedKind ?? this.pickEnemyKind();
 
     const hpScale =
       this.wave === 1
@@ -1358,7 +1394,30 @@ export class AetherGame {
   private updatePlayer(dt: number, isTitle: boolean): void {
     const p = this.player;
     p.bladeAngle += dt * 3.8;
-    if (p.dashTimer > 0) p.dashTimer = Math.max(0, p.dashTimer - dt);
+    if (p.dashTimer > 0) {
+      p.dashTimer = Math.max(0, p.dashTimer - dt);
+      this.dashWasCooling = true;
+    } else if (this.dashWasCooling) {
+      this.dashWasCooling = false;
+      if (!isTitle) {
+        this.spawnShockwave(p.x, p.y, 44, this.theme.primary, 1.5);
+      }
+    }
+    if (!isTitle && p.hp > 0 && p.hp / p.maxHp <= 0.45) {
+      this.hullSparkTimer -= dt;
+      if (this.hullSparkTimer <= 0) {
+        this.hullSparkTimer = 0.22;
+        const sparkCol = p.hp / p.maxHp <= 0.25 ? '#ff2a54' : '#ffb703';
+        this.spawnParticles(
+          p.x - Math.cos(p.angle) * 10,
+          p.y - Math.sin(p.angle) * 10,
+          2,
+          sparkCol,
+          110,
+          'shard'
+        );
+      }
+    }
     if (p.invulnTimer > 0) p.invulnTimer = Math.max(0, p.invulnTimer - dt);
     if (p.fireCooldown > 0) p.fireCooldown -= dt;
     if (p.overclockTimer > 0) p.overclockTimer = Math.max(0, p.overclockTimer - dt);
@@ -1750,20 +1809,37 @@ export class AetherGame {
 
   private updateSpawning(dt: number, isTitle: boolean): void {
     if (this.coopRole === 'guest' || this.mode === 'pvp') return;
+
+    for (let i = this.pendingSpawns.length - 1; i >= 0; i--) {
+      const ps = this.pendingSpawns[i];
+      ps.timer -= dt;
+      if (ps.timer <= 0) {
+        this.pendingSpawns.splice(i, 1);
+        this.spawnEnemy(ps.kind, ps.x, ps.y);
+      }
+    }
+
     if (this.waveSpawnRemaining > 0) {
       this.spawnTimer -= dt;
       if (this.spawnTimer <= 0) {
-        this.spawnEnemy();
+        if (isTitle) this.spawnEnemy();
+        else this.queueEnemySpawn();
         this.waveSpawnRemaining--;
         this.spawnTimer = Math.max(
           0.24,
           (this.wave === 1 ? 1.4 : this.wave === 2 ? 1.18 : 1.05) - this.wave * 0.055
         );
       }
-    } else if (this.enemies.length === 0) {
+    } else if (this.enemies.length === 0 && this.pendingSpawns.length === 0) {
       this.waveClearDelay += dt;
       if (this.waveClearDelay >= 1.2) {
         this.waveClearDelay = 0;
+        if (!isTitle && this.player.hp < this.player.maxHp) {
+          const waveHeal = Math.max(12, Math.round(this.player.maxHp * 0.1));
+          this.player.hp = Math.min(this.player.maxHp, this.player.hp + waveHeal);
+          this.addFloatingText(this.player.x, this.player.y - 36, `РЕМОНТ ВОЛНЫ +${waveHeal} ХП`, '#00ff87', 1.15);
+          this.spawnShockwave(this.player.x, this.player.y, 130, '#00ff87', 3);
+        }
         this.startWave(this.wave + 1, isTitle);
       }
     }
@@ -2128,6 +2204,31 @@ export class AetherGame {
         this.damagePlayer(contactDmg);
       }
     }
+
+    // Мягкое расталкивание врагов, чтобы рой не сливался в одну точку
+    if (this.enemies.length > 1 && this.enemies.length <= 45) {
+      for (let i = 0; i < this.enemies.length; i++) {
+        const a = this.enemies[i];
+        if (a.kind === 'boss') continue;
+        for (let j = i + 1; j < this.enemies.length; j++) {
+          const b = this.enemies[j];
+          if (b.kind === 'boss') continue;
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const dist = Math.hypot(dx, dy);
+          const minD = (a.radius + b.radius) * 0.92;
+          if (dist > 0.01 && dist < minD) {
+            const push = (minD - dist) * 0.35;
+            const nx = dx / dist;
+            const ny = dy / dist;
+            a.x -= nx * push;
+            a.y -= ny * push;
+            b.x += nx * push;
+            b.y += ny * push;
+          }
+        }
+      }
+    }
   }
 
   private updateBullets(dt: number, isTitle: boolean): void {
@@ -2231,6 +2332,10 @@ export class AetherGame {
           this.addFloatingText(this.courier.x, this.courier.y - 20, '+25 ✦ КУРЬЕР СБИТ!', '#ffd166', 1.25);
           this.spawnShockwave(this.courier.x, this.courier.y, 160, '#ffd166', 4);
           this.spawnParticles(this.courier.x, this.courier.y, 28, '#ffd166', 320, 'shard');
+          if (this.powerups.length < 14) {
+            this.powerups.push({ x: this.courier.x, y: this.courier.y, kind: 'heal', life: 22, pulse: 0 });
+            this.killsSinceHealDrop = 0;
+          }
           sound.playExplosion(1.4);
           this.callbacks.onAchievement?.('ach_courier');
           this.courier = null;
@@ -2284,13 +2389,29 @@ export class AetherGame {
         this.powerups.splice(i, 1);
         continue;
       }
-      if (!isTitle && Math.hypot(p.x - pu.x, p.y - pu.y) < p.radius + 20) {
+
+      const dx = p.x - pu.x;
+      const dy = p.y - pu.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      const attractRadius =
+        pu.kind === 'heal' && p.hp < p.maxHp
+          ? Math.max(220, this.stats.pickupRadius * 1.15)
+          : Math.max(140, this.stats.pickupRadius * 0.9);
+      if (!isTitle && dist < attractRadius) {
+        const pullSpeed = 460 * (1 - (dist / attractRadius) * 0.35);
+        pu.x += (dx / dist) * pullSpeed * dt;
+        pu.y += (dy / dist) * pullSpeed * dt;
+      }
+
+      if (!isTitle && Math.hypot(p.x - pu.x, p.y - pu.y) < p.radius + 26) {
         this.powerups.splice(i, 1);
         sound.playLevelUp();
         if (pu.kind === 'heal') {
-          p.hp = Math.min(p.maxHp, p.hp + 25);
-          this.addFloatingText(p.x, p.y - 28, 'РЕМОНТ +25', '#00ff87', 1.1);
-          this.spawnShockwave(p.x, p.y, 110, '#00ff87', 3);
+          const healAmt = Math.max(28, Math.round(p.maxHp * 0.25));
+          p.hp = Math.min(p.maxHp, p.hp + healAmt);
+          this.addFloatingText(p.x, p.y - 28, `РЕМОНТ +${healAmt} ХП`, '#00ff87', 1.18);
+          this.spawnShockwave(p.x, p.y, 125, '#00ff87', 3);
+          this.spawnParticles(p.x, p.y, 14, '#00ff87', 200);
         } else if (pu.kind === 'magnet') {
           for (const o of this.orbs) o.magnetized = true;
           this.addFloatingText(p.x, p.y - 28, 'ГИПЕР-МАГНИТ!', '#00f5ff', 1.15);
@@ -2377,7 +2498,10 @@ export class AetherGame {
       this.player.novaCharge = Math.min(100, this.player.novaCharge + (isBoss ? 50 : 4));
 
       if (this.stats.vampiricChance > 0 && Math.random() < this.stats.vampiricChance) {
-        this.player.hp = Math.min(this.player.maxHp, this.player.hp + 3);
+        this.player.hp = Math.min(this.player.maxHp, this.player.hp + 4);
+        if (this.state === 'playing') {
+          this.addFloatingText(this.player.x, this.player.y - 24, '+4 ХП', '#00ff87', 0.9);
+        }
       }
 
       if (allowAudio) {
@@ -2395,6 +2519,44 @@ export class AetherGame {
       } else {
         this.spawnParticles(e.x, e.y, isBoss ? 55 : 18, e.color, isBoss ? 420 : 240, 'shard');
         this.spawnShockwave(e.x, e.y, isBoss ? 280 : 65, e.color, isBoss ? 6 : 2.5);
+      }
+
+      // Умный дроп ремонта и усилений (с гарантией после серии убийств при нехватке ХП)
+      if (this.state === 'playing' && this.mode !== 'pvp') {
+        const hpRatio = this.player.hp / Math.max(1, this.player.maxHp);
+        if (hpRatio < 0.78) {
+          this.killsSinceHealDrop++;
+        } else {
+          this.killsSinceHealDrop = 0;
+        }
+
+        if (isBoss) {
+          if (this.powerups.length < 14) {
+            this.powerups.push({ x: e.x - 18, y: e.y, kind: 'heal', life: 22, pulse: 0 });
+            const bonusKind: PowerUpKind = Math.random() < 0.5 ? 'overclock' : 'magnet';
+            this.powerups.push({ x: e.x + 18, y: e.y, kind: bonusKind, life: 22, pulse: 1 });
+            this.killsSinceHealDrop = 0;
+          }
+        } else if (this.powerups.length < 14) {
+          const pityTrigger =
+            (hpRatio < 0.42 && this.killsSinceHealDrop >= 9) ||
+            (hpRatio < 0.78 && this.killsSinceHealDrop >= 14);
+          const dropChance = e.isElite ? 0.38 : 0.095;
+
+          if (pityTrigger) {
+            this.powerups.push({ x: e.x, y: e.y, kind: 'heal', life: 22, pulse: 0 });
+            this.killsSinceHealDrop = 0;
+          } else if (Math.random() < dropChance) {
+            const healWeight = hpRatio < 0.42 ? 0.75 : hpRatio < 0.75 ? 0.58 : 0.35;
+            const roll = Math.random();
+            const kind: PowerUpKind =
+              roll < healWeight ? 'heal' : roll < healWeight + (1 - healWeight) * 0.5 ? 'magnet' : 'overclock';
+            this.powerups.push({ x: e.x, y: e.y, kind, life: 22, pulse: 0 });
+            if (kind === 'heal') {
+              this.killsSinceHealDrop = 0;
+            }
+          }
+        }
       }
 
       if (isBoss) {
@@ -2426,13 +2588,6 @@ export class AetherGame {
           this.callbacks.onAbyssChoice?.();
           return;
         }
-      }
-
-      // Chance to drop bonus PowerUp
-      if (this.state === 'playing' && (isBoss || Math.random() < 0.045)) {
-        const kinds: PowerUpKind[] = ['heal', 'magnet', 'overclock'];
-        const kind = kinds[Math.floor(Math.random() * kinds.length)];
-        this.powerups.push({ x: e.x, y: e.y, kind, life: 14, pulse: 0 });
       }
 
       if (e.kind === 'splitter') {
@@ -2576,6 +2731,7 @@ export class AetherGame {
     sound.playDamage();
     this.vibrate(45);
     this.addShake(12);
+    this.addFloatingText(p.x, p.y - 26, `-${Math.round(amount)} ХП`, '#ff2a54', 1.05);
     this.spawnShockwave(p.x, p.y, 130, '#ff2a54', 4);
     this.spawnParticles(p.x, p.y, 16, '#ff2a54', 240);
 
@@ -2603,8 +2759,9 @@ export class AetherGame {
       const dy = p.y - o.y;
       const dist = Math.hypot(dx, dy) || 1;
 
-      if (o.magnetized || dist < this.stats.pickupRadius) {
-        const pull = o.magnetized ? 980 : 600 * (1 - dist / (this.stats.pickupRadius * 1.25));
+      const effectivePickup = this.stats.pickupRadius * (p.dashDuration > 0 ? 1.35 : 1);
+      if (o.magnetized || dist < effectivePickup) {
+        const pull = o.magnetized ? 980 : 600 * (1 - dist / (effectivePickup * 1.25));
         o.vx += (dx / dist) * pull * dt * 8;
         o.vy += (dy / dist) * pull * dt * 8;
       }
@@ -2811,6 +2968,15 @@ export class AetherGame {
           : 'ГЛУБОКИЙ КОСМОС',
       mutatorName: this.activeMutatorName,
       activeRelic: this.activeRelic,
+      waveProgress: Math.max(
+        0,
+        Math.min(
+          1,
+          1 -
+            (this.waveSpawnRemaining + this.enemies.length + this.pendingSpawns.length) /
+              Math.max(1, this.waveTotalCount)
+        )
+      ),
       boss: boss
         ? {
             name:
@@ -2969,9 +3135,64 @@ export class AetherGame {
       ctx.restore();
     }
 
+    // Телеграф скорого появления врагов
+    for (const ps of this.pendingSpawns) {
+      const progress = 1 - Math.max(0, ps.timer) / Math.max(0.01, ps.maxTimer);
+      const ringR = 32 - progress * 16;
+      const col = ps.kind === 'sniper' ? '#ffb703' : ps.kind === 'warden' ? '#b5179e' : '#ff2a85';
+      ctx.save();
+      ctx.strokeStyle = this.hexToRgba(col, 0.35 + progress * 0.6);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(ps.x, ps.y, ringR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(ps.x - 10, ps.y);
+      ctx.lineTo(ps.x + 10, ps.y);
+      ctx.moveTo(ps.x, ps.y - 10);
+      ctx.lineTo(ps.x, ps.y + 10);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // PowerUps
     for (const pu of this.powerups) {
-      const col = pu.kind === 'heal' ? '#00ff87' : pu.kind === 'magnet' ? '#00f5ff' : '#ffb703';
+      if (pu.life < 3.5 && Math.floor(this.time * 12) % 2 === 0) {
+        continue;
+      }
+      if (pu.kind === 'heal') {
+        const r = 15 + Math.sin(pu.pulse) * 2.5;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(0, 255, 135, 0.45)';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.arc(pu.x, pu.y, r + 6 + Math.sin(pu.pulse) * 2, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.strokeStyle = '#00ff87';
+        ctx.fillStyle = 'rgba(0, 255, 135, 0.28)';
+        ctx.lineWidth = 2.6;
+        ctx.beginPath();
+        for (let h = 0; h < 6; h++) {
+          const ha = (h * Math.PI * 2) / 6;
+          const hx = pu.x + Math.cos(ha) * r;
+          const hy = pu.y + Math.sin(ha) * r;
+          if (h === 0) ctx.moveTo(hx, hy);
+          else ctx.lineTo(hx, hy);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Чёткий белый крест ремонта
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(pu.x - 2.5, pu.y - 7.5, 5, 15);
+        ctx.fillRect(pu.x - 7.5, pu.y - 2.5, 15, 5);
+        ctx.restore();
+        continue;
+      }
+
+      const col = pu.kind === 'magnet' ? '#00f5ff' : '#ffb703';
       const r = 13 + Math.sin(pu.pulse) * 2.5;
       ctx.strokeStyle = col;
       ctx.fillStyle = this.hexToRgba(col, 0.25);
@@ -2985,7 +3206,7 @@ export class AetherGame {
       ctx.font = '700 13px "Exo 2", sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(pu.kind === 'heal' ? '+' : pu.kind === 'magnet' ? 'M' : '2X', pu.x, pu.y + 1);
+      ctx.fillText(pu.kind === 'magnet' ? 'M' : '2X', pu.x, pu.y + 1);
     }
 
     for (const s of this.shockwaves) {
@@ -3172,12 +3393,76 @@ export class AetherGame {
       ctx.fillRect(0, 0, this.width, this.height);
     }
 
-    // Tactical Minimap during gameplay
+    // Tactical Minimap & edge indicators during gameplay
     if (this.state === 'playing') {
       this.renderMinimap(ctx);
+      this.renderOffscreenIndicators(ctx, offsetX, offsetY);
     }
 
     ctx.restore();
+  }
+
+  private renderOffscreenIndicators(ctx: CanvasRenderingContext2D, offsetX: number, offsetY: number): void {
+    const padX = 30;
+    const padTop = this.isTouchDevice ? 148 : 96;
+    const padBottom = this.isTouchDevice ? 112 : 90;
+    const halfW = this.width / 2;
+    const halfH = this.height / 2;
+
+    const drawMarker = (wx: number, wy: number, color: string, label: string) => {
+      const sx = wx + offsetX;
+      const sy = wy + offsetY;
+      if (sx >= padX && sx <= this.width - padX && sy >= padTop && sy <= this.height - padBottom) {
+        return;
+      }
+      const dx = sx - halfW;
+      const dy = sy - halfH;
+      const angle = Math.atan2(dy, dx);
+      const maxX = Math.max(40, halfW - padX);
+      const maxTop = Math.max(40, halfH - padTop);
+      const maxBot = Math.max(40, halfH - padBottom);
+      const limY = dy < 0 ? maxTop : maxBot;
+      const scale = Math.min(maxX / Math.max(1, Math.abs(dx)), limY / Math.max(1, Math.abs(dy)));
+      const ix = halfW + dx * scale;
+      const iy = halfH + dy * scale;
+
+      ctx.save();
+      ctx.translate(ix, iy);
+      ctx.save();
+      ctx.rotate(angle);
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(10, 0);
+      ctx.lineTo(-6, -6);
+      ctx.lineTo(-3, 0);
+      ctx.lineTo(-6, 6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+      if (label) {
+        ctx.fillStyle = color;
+        ctx.font = '700 10px "Exo 2", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(label, 0, dy < 0 ? 18 : -11);
+      }
+      ctx.restore();
+    };
+
+    if (this.player.hp < this.player.maxHp * 0.85) {
+      for (const pu of this.powerups) {
+        if (pu.kind === 'heal') {
+          drawMarker(pu.x, pu.y, '#00ff87', '+ХП');
+        }
+      }
+    }
+    for (const e of this.enemies) {
+      if (e.kind === 'boss') {
+        drawMarker(e.x, e.y, '#ff2a54', 'БОСС');
+      }
+    }
+    if (this.courier) {
+      drawMarker(this.courier.x, this.courier.y, '#ffd166', '✦');
+    }
   }
 
   private renderMinimap(ctx: CanvasRenderingContext2D): void {
@@ -3216,6 +3501,15 @@ export class AetherGame {
       ctx.beginPath();
       ctx.arc(mx + e.x * sx, my + e.y * sy, r, 0, Math.PI * 2);
       ctx.fill();
+    }
+
+    for (const pu of this.powerups) {
+      if (pu.kind === 'heal') {
+        ctx.fillStyle = '#00ff87';
+        ctx.beginPath();
+        ctx.arc(mx + pu.x * sx, my + pu.y * sy, 2.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     const px = mx + this.player.x * sx;
