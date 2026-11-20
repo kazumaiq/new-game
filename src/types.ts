@@ -107,6 +107,7 @@ export interface Bullet {
   radius: number;
   damage: number;
   isEnemy: boolean;
+  isVisualOnly?: boolean;
   isHoming?: boolean;
   isCrit?: boolean;
   pierceLeft: number;

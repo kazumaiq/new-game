@@ -8,6 +8,8 @@ export interface RemotePlayerState {
   color: string;
   x: number;
   y: number;
+  vx: number;
+  vy: number;
   angle: number;
   hp: number;
   maxHp: number;
@@ -59,6 +61,7 @@ export class CoopNetwork {
 
     this.callbacks.onStatus(`Создание комнаты ${this.roomCode}...`, false);
     this.peer = new Peer(peerId, {
+      debug: 0,
       config: { iceServers: getIceServers() },
     });
 
@@ -89,6 +92,7 @@ export class CoopNetwork {
 
     this.callbacks.onStatus(`Подключение к комнате ${clean}...`, false);
     this.peer = new Peer({
+      debug: 0,
       config: { iceServers: getIceServers() },
     });
 
@@ -110,6 +114,13 @@ export class CoopNetwork {
       this.send({ type: 'hello', callsign, color });
     });
 
+    const pc = (conn as unknown as { peerConnection?: RTCPeerConnection }).peerConnection;
+    pc?.addEventListener('iceconnectionstatechange', () => {
+      if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+        this.callbacks.onStatus('Слабый P2P-канал — переподключение...', conn.open);
+      }
+    });
+
     conn.on('data', (raw) => {
       const data = raw as Record<string, unknown>;
       if (data.type === 'hello') {
@@ -126,6 +137,19 @@ export class CoopNetwork {
       this.callbacks.onStatus('Напарник отключился', false);
       this.callbacks.onDisconnect();
     });
+  }
+
+  public canSendState(): boolean {
+    if (!this.conn || !this.conn.open) return false;
+    const dc = (this.conn as unknown as { dataChannel?: RTCDataChannel }).dataChannel;
+    if (!dc) return true;
+    return dc.bufferedAmount < 24576;
+  }
+
+  public sendState(data: Record<string, unknown>): void {
+    if (this.canSendState()) {
+      this.conn!.send(data);
+    }
   }
 
   public send(data: Record<string, unknown>): void {

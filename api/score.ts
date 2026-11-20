@@ -57,8 +57,10 @@ function verifyTelegramInitData(initData: string, botToken: string): VerifiedTg 
 }
 
 export default async function handler(req: ApiReq, res: ApiRes): Promise<void> {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') {
-    res.setHeader('Allow', 'POST, OPTIONS');
     res.status(204).end();
     return;
   }
@@ -75,7 +77,7 @@ export default async function handler(req: ApiReq, res: ApiRes): Promise<void> {
     return;
   }
 
-  const botToken = process.env.TELEGRAM_BOT_TOKEN || '';
+  const botToken = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
   const tgInitData = typeof body.tgInitData === 'string' ? body.tgInitData : '';
   let playerId = typeof body.playerId === 'string' ? body.playerId.trim().slice(0, 64) : '';
 
@@ -121,9 +123,12 @@ export default async function handler(req: ApiReq, res: ApiRes): Promise<void> {
     return;
   }
 
-  const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
-  const supabaseKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
+  const supabaseUrl = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').trim();
+  const supabaseKey = (
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    ''
+  ).trim();
 
   if (!supabaseUrl || !supabaseKey) {
     res.status(200).json({ ok: true, skipped: true });

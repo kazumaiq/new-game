@@ -20,8 +20,9 @@ export interface ClanScoreRow {
   isSelf: boolean;
 }
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || '').trim();
+const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
+const API_BASE = (import.meta.env.VITE_API_BASE || '').trim();
 
 const DAILY_BOARD_KEY = 'aether_rift_daily_board_v1';
 
@@ -38,7 +39,7 @@ export async function submitGlobalScore(entry: GlobalScoreRow, tgInitData = ''):
 
   // 1. Безопасная отправка через Vercel /api/score (античит + Telegram HMAC)
   try {
-    const apiRes = await fetch('/api/score', {
+    const apiRes = await fetch(`${API_BASE}/api/score`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -97,6 +98,40 @@ export async function fetchGlobalLeaderboard(
   myCallsign: string,
   friends: string[] = []
 ): Promise<GlobalScoreRow[]> {
+  const friendSet = new Set(friends.map((f) => f.toUpperCase()));
+  const normalizeRows = (rows: GlobalScoreRow[]): GlobalScoreRow[] => {
+    const filtered =
+      modeFilter === 'friends'
+        ? rows.filter(
+            (r) =>
+              (myPlayerId && r.player_id === myPlayerId) ||
+              r.callsign === myCallsign ||
+              friendSet.has(r.callsign.toUpperCase()) ||
+              (r.player_id ? friendSet.has(r.player_id.toUpperCase()) : false)
+          )
+        : rows;
+    return filtered.slice(0, 30).map((r) => ({
+      ...r,
+      isSelf: (Boolean(myPlayerId) && r.player_id === myPlayerId) || r.callsign === myCallsign,
+    }));
+  };
+
+  // 1. Сначала через серверный эндпоинт /api/scores (работает даже без пересборки VITE_* на клиенте)
+  try {
+    const apiMode = modeFilter === 'daily' ? 'daily' : 'all';
+    const limit = modeFilter === 'friends' ? 80 : 30;
+    const res = await fetch(`${API_BASE}/api/scores?mode=${apiMode}&limit=${limit}`);
+    if (res.ok) {
+      const data = (await res.json()) as { ok?: boolean; unconfigured?: boolean; rows?: GlobalScoreRow[] };
+      if (data?.ok && !data?.unconfigured && Array.isArray(data.rows)) {
+        return normalizeRows(data.rows);
+      }
+    }
+  } catch {
+    // fallback to Supabase REST
+  }
+
+  // 2. Fallback в Supabase REST напрямую
   if (SUPABASE_URL && SUPABASE_ANON_KEY) {
     try {
       const filter = modeFilter === 'daily' ? '&mode=eq.daily' : '';
@@ -112,21 +147,7 @@ export async function fetchGlobalLeaderboard(
       );
       if (res.ok) {
         const rows = (await res.json()) as GlobalScoreRow[];
-        const friendSet = new Set(friends.map((f) => f.toUpperCase()));
-        const filtered =
-          modeFilter === 'friends'
-            ? rows.filter(
-                (r) =>
-                  (myPlayerId && r.player_id === myPlayerId) ||
-                  r.callsign === myCallsign ||
-                  friendSet.has(r.callsign.toUpperCase()) ||
-                  (r.player_id ? friendSet.has(r.player_id.toUpperCase()) : false)
-              )
-            : rows;
-        return filtered.slice(0, 30).map((r) => ({
-          ...r,
-          isSelf: (Boolean(myPlayerId) && r.player_id === myPlayerId) || r.callsign === myCallsign,
-        }));
+        return normalizeRows(rows);
       }
     } catch {
       // fallback to local
@@ -141,7 +162,6 @@ export async function fetchGlobalLeaderboard(
     local = [];
   }
 
-  const friendSet = new Set(friends.map((f) => f.toUpperCase()));
   const filtered = local.filter((r) => {
     if (modeFilter === 'daily') return r.mode === 'daily';
     if (modeFilter === 'friends') {
@@ -158,9 +178,21 @@ export async function fetchGlobalLeaderboard(
 }
 
 export async function fetchClanLeaderboard(myClanTag: string): Promise<ClanScoreRow[]> {
-  let rows: GlobalScoreRow[] = [];
+  let rows: GlobalScoreRow[] | null = null;
 
-  if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+  try {
+    const res = await fetch(`${API_BASE}/api/scores?mode=clans&limit=120`);
+    if (res.ok) {
+      const data = (await res.json()) as { ok?: boolean; unconfigured?: boolean; rows?: GlobalScoreRow[] };
+      if (data?.ok && !data?.unconfigured && Array.isArray(data.rows)) {
+        rows = data.rows;
+      }
+    }
+  } catch {
+    rows = null;
+  }
+
+  if (rows === null && SUPABASE_URL && SUPABASE_ANON_KEY) {
     try {
       const res = await fetch(
         `${SUPABASE_URL}/rest/v1/scores?select=player_id,callsign,clan_tag,score,wave&clan_tag=neq.&order=score.desc&limit=120`,
@@ -177,7 +209,9 @@ export async function fetchClanLeaderboard(myClanTag: string): Promise<ClanScore
     } catch {
       rows = [];
     }
-  } else {
+  }
+
+  if (rows === null) {
     try {
       const raw = localStorage.getItem(DAILY_BOARD_KEY);
       rows = raw ? (JSON.parse(raw) as GlobalScoreRow[]).filter((r) => Boolean(r.clan_tag)) : [];
@@ -217,7 +251,7 @@ export async function fetchClanLeaderboard(myClanTag: string): Promise<ClanScore
 
 export async function saveCloudProfile(profile: PlayerProfile, tgInitData = ''): Promise<void> {
   try {
-    const res = await fetch('/api/profile', {
+    const res = await fetch(`${API_BASE}/api/profile`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -263,7 +297,7 @@ export async function fetchCloudProfile(playerId: string, tgInitData = ''): Prom
   try {
     const headers: Record<string, string> = {};
     if (tgInitData) headers['x-tg-init-data'] = tgInitData;
-    const res = await fetch(`/api/profile?playerId=${encodeURIComponent(playerId)}`, { headers });
+    const res = await fetch(`${API_BASE}/api/profile?playerId=${encodeURIComponent(playerId)}`, { headers });
     if (res.ok) {
       const data = (await res.json()) as { profile?: PlayerProfile | null };
       if (data?.profile) return data.profile;

@@ -69,6 +69,7 @@ export interface GameCallbacks {
   }) => void;
   onWaveBanner: (title: string, subtitle: string) => void;
   onPvpHit?: (damage: number) => void;
+  onCoopEvent?: (data: Record<string, unknown>) => void;
   onAchievement?: (id: string) => void;
   onAbyssChoice?: () => void;
   onReviveOffer?: () => void;
@@ -220,11 +221,22 @@ export class AetherGame {
     color: '#ff2a85',
     x: 1200,
     y: 900,
+    vx: 0,
+    vy: 0,
     angle: 0,
     hp: 100,
     maxHp: 100,
     down: false,
   };
+  private coopSeq = 0;
+  private lastRemoteSeq = 0;
+  private remoteTarget = { x: 1200, y: 900, vx: 0, vy: 0, angle: 0, initialized: false };
+  private enemyTargets = new Map<number, { x: number; y: number; vx: number; vy: number }>();
+  private teamXpEarned = 0;
+  private appliedHostXp = 0;
+  private pendingCoopEBullets: Array<[number, number, number, number, number, number, number, string]> = [];
+  private pendingCoopPBullets: Array<[number, number, number, number, number, number, number, number, number, number, string]> = [];
+  private pendingCoopSlash: [number, number, number, number] | null = null;
 
   constructor(canvas: HTMLCanvasElement, callbacks: GameCallbacks) {
     this.canvas = canvas;
@@ -276,22 +288,47 @@ export class AetherGame {
   }
 
   public getCoopSyncPacket(): Record<string, unknown> {
+    this.coopSeq++;
     if (this.coopRole === 'host') {
+      const rp = this.remotePlayer;
+      const syncedEnemies =
+        this.enemies.length <= 40
+          ? this.enemies
+          : [...this.enemies]
+              .sort((a, b) => {
+                const da = Math.min(
+                  Math.hypot(a.x - this.player.x, a.y - this.player.y),
+                  rp.connected && !rp.down ? Math.hypot(a.x - rp.x, a.y - rp.y) : Infinity
+                );
+                const db = Math.min(
+                  Math.hypot(b.x - this.player.x, b.y - this.player.y),
+                  rp.connected && !rp.down ? Math.hypot(b.x - rp.x, b.y - rp.y) : Infinity
+                );
+                return da - db;
+              })
+              .slice(0, 40);
+
       return {
         type: 'state',
+        seq: this.coopSeq,
         x: Math.round(this.player.x),
         y: Math.round(this.player.y),
+        vx: Math.round(this.player.vx),
+        vy: Math.round(this.player.vy),
         a: Number(this.player.angle.toFixed(2)),
         hp: Math.ceil(this.player.hp),
         mhp: this.player.maxHp,
         down: this.player.hp <= 0,
         wave: this.wave,
         score: this.score,
-        enemies: this.enemies.slice(0, 45).map((e) => [
+        teamXp: this.teamXpEarned,
+        enemies: syncedEnemies.map((e) => [
           e.id,
           e.kind,
           Math.round(e.x),
           Math.round(e.y),
+          Math.round(e.vx),
+          Math.round(e.vy),
           Math.round(e.hp),
           Math.round(e.maxHp),
         ]),
@@ -299,8 +336,11 @@ export class AetherGame {
     }
     return {
       type: 'input',
+      seq: this.coopSeq,
       x: Math.round(this.player.x),
       y: Math.round(this.player.y),
+      vx: Math.round(this.player.vx),
+      vy: Math.round(this.player.vy),
       a: Number(this.player.angle.toFixed(2)),
       hp: Math.ceil(this.player.hp),
       mhp: this.player.maxHp,
@@ -309,61 +349,306 @@ export class AetherGame {
   }
 
   public applyCoopPacket(data: Record<string, unknown>): void {
+    if (data.type === 'coop_fire') {
+      const shots = data.b as
+        | Array<[number, number, number, number, number, number, number, number, number, number, string]>
+        | undefined;
+      const visualOnly = this.mode === 'pvp' || this.coopRole === 'guest';
+      if (Array.isArray(shots)) {
+        for (const [x, y, vx, vy, r, dmg, critFlag, pierce, ric, life10, col] of shots) {
+          this.bullets.push({
+            x,
+            y,
+            vx,
+            vy,
+            radius: r,
+            damage: dmg,
+            isEnemy: false,
+            isVisualOnly: visualOnly,
+            isCrit: critFlag === 1,
+            pierceLeft: pierce,
+            ricochetLeft: ric,
+            life: life10 / 10,
+            color: col || this.remotePlayer.color,
+            trail: [],
+            hitIds: new Set(),
+          });
+        }
+      }
+      const slash = data.slash as [number, number, number, number] | undefined;
+      if (Array.isArray(slash) && this.coopRole === 'host' && this.mode === 'coop') {
+        const [sx, sy, sa, sdmg] = slash;
+        this.slashArcs.push({ x: sx, y: sy, angle: sa, radius: 112, life: 0.16, maxLife: 0.16 });
+        for (const e of [...this.enemies]) {
+          if (e.hp <= 0) continue;
+          if (Math.hypot(e.x - sx, e.y - sy) <= 112 + e.radius) {
+            let diff = Math.atan2(e.y - sy, e.x - sx) - sa;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            if (Math.abs(diff) <= 1.15) {
+              this.damageEnemy(e, sdmg, true, false);
+            }
+          }
+        }
+      }
+      return;
+    }
+
+    if (data.type === 'coop_efire' && this.coopRole === 'guest' && this.mode === 'coop') {
+      const shots = data.b as Array<[number, number, number, number, number, number, number, string]> | undefined;
+      if (Array.isArray(shots)) {
+        for (const [x, y, vx, vy, r, dmg, life10, col] of shots) {
+          this.bullets.push({
+            x,
+            y,
+            vx,
+            vy,
+            radius: r,
+            damage: dmg,
+            isEnemy: true,
+            pierceLeft: 0,
+            ricochetLeft: 0,
+            life: life10 / 10,
+            color: col || '#ffb703',
+            trail: [],
+            hitIds: new Set(),
+          });
+        }
+      }
+      return;
+    }
+
+    if (data.type === 'coop_boom' && this.coopRole === 'guest' && this.mode === 'coop') {
+      const bx = Number(data.x || 0);
+      const by = Number(data.y || 0);
+      const dmg = Number(data.dmg || 22);
+      this.spawnShockwave(bx, by, 115, '#ff7b00', 5);
+      this.spawnParticles(bx, by, 20, '#ff7b00', 260, 'shard');
+      sound.playExplosion(1.2);
+      if (this.player.invulnTimer <= 0 && Math.hypot(this.player.x - bx, this.player.y - by) < 115) {
+        this.damagePlayer(dmg);
+      }
+      return;
+    }
+
     if (data.type === 'state' || data.type === 'input') {
+      const seq = Number(data.seq || 0);
+      if (seq > 0 && this.lastRemoteSeq > 0 && seq <= this.lastRemoteSeq && this.lastRemoteSeq - seq < 120) {
+        return;
+      }
+      if (seq > 0) this.lastRemoteSeq = seq;
+
       this.remotePlayer.connected = true;
-      this.remotePlayer.x = Number(data.x ?? this.remotePlayer.x);
-      this.remotePlayer.y = Number(data.y ?? this.remotePlayer.y);
-      this.remotePlayer.angle = Number(data.a ?? this.remotePlayer.angle);
+      const nx = Number(data.x ?? this.remoteTarget.x);
+      const ny = Number(data.y ?? this.remoteTarget.y);
+      const nvx = Number(data.vx ?? 0);
+      const nvy = Number(data.vy ?? 0);
+      const na = Number(data.a ?? this.remoteTarget.angle);
+
+      if (!this.remoteTarget.initialized || Math.hypot(nx - this.remotePlayer.x, ny - this.remotePlayer.y) > 450) {
+        this.remotePlayer.x = nx;
+        this.remotePlayer.y = ny;
+        this.remotePlayer.angle = na;
+        this.remoteTarget.initialized = true;
+      }
+      this.remoteTarget.x = nx;
+      this.remoteTarget.y = ny;
+      this.remoteTarget.vx = nvx;
+      this.remoteTarget.vy = nvy;
+      this.remoteTarget.angle = na;
+      this.remotePlayer.vx = nvx;
+      this.remotePlayer.vy = nvy;
       this.remotePlayer.hp = Number(data.hp ?? this.remotePlayer.hp);
       this.remotePlayer.maxHp = Number(data.mhp ?? this.remotePlayer.maxHp);
       this.remotePlayer.down = Boolean(data.down);
     }
+
     if (data.type === 'state' && this.coopRole === 'guest') {
       this.wave = Number(data.wave ?? this.wave);
       this.score = Math.max(this.score, Number(data.score ?? this.score));
-      const rawEnemies = data.enemies as Array<[number, EnemyKind, number, number, number, number]> | undefined;
-      if (Array.isArray(rawEnemies)) {
-        const next: Enemy[] = [];
-        for (const [id, kind, x, y, hp, maxHp] of rawEnemies) {
-          const existing = this.enemies.find((e) => e.id === id);
-          const color =
-            kind === 'splitter'
-              ? '#ff2a85'
-              : kind === 'mini'
-              ? '#ff70a6'
-              : kind === 'sniper'
-              ? '#ffb703'
-              : kind === 'warden'
-              ? '#b5179e'
-              : kind === 'boss'
-              ? '#ff0054'
-              : '#00f5ff';
-          const radius =
-            kind === 'boss' ? 54 : kind === 'warden' ? 24 : kind === 'splitter' ? 22 : kind === 'sniper' ? 17 : kind === 'mini' ? 10 : 15;
-          next.push({
-            id,
-            kind,
-            x,
-            y,
-            vx: 0,
-            vy: 0,
-            angle: existing ? existing.angle : 0,
-            radius,
-            hp,
-            maxHp,
-            speed: 140,
-            color,
-            xpValue: 12,
-            scoreValue: 100,
-            shootTimer: 2,
-            aimTimer: 0,
-            aimAngle: 0,
-            hitFlash: existing ? existing.hitFlash : 0,
-            spin: existing ? existing.spin : 2,
-          });
+
+      const hostXp = Number(data.teamXp ?? 0);
+      if (hostXp > this.appliedHostXp && this.state === 'playing') {
+        const gain = hostXp - this.appliedHostXp;
+        this.appliedHostXp = hostXp;
+        this.player.xp += gain * this.xpBuffMult;
+        if (this.player.xp >= this.player.xpToNext) {
+          this.triggerLevelUp();
         }
+      }
+
+      const rawEnemies = data.enemies as
+        | Array<[number, EnemyKind, number, number, number, number, number, number]>
+        | undefined;
+      if (Array.isArray(rawEnemies)) {
+        const existingMap = new Map<number, Enemy>();
+        for (const e of this.enemies) existingMap.set(e.id, e);
+        const next: Enemy[] = [];
+        const nextTargets = new Map<number, { x: number; y: number; vx: number; vy: number }>();
+
+        for (const [id, kind, x, y, vx, vy, hp, maxHp] of rawEnemies) {
+          const existing = existingMap.get(id);
+          nextTargets.set(id, { x, y, vx, vy });
+          if (existing) {
+            existing.hp = hp;
+            existing.maxHp = maxHp;
+            existing.vx = vx;
+            existing.vy = vy;
+            if (Math.hypot(x - existing.x, y - existing.y) > 420) {
+              existing.x = x;
+              existing.y = y;
+            }
+            next.push(existing);
+          } else {
+            const color =
+              kind === 'splitter'
+                ? '#ff2a85'
+                : kind === 'mini'
+                ? '#ff70a6'
+                : kind === 'bomber'
+                ? '#ff7b00'
+                : kind === 'shielder'
+                ? '#70e0ff'
+                : kind === 'spawner'
+                ? '#c77dff'
+                : kind === 'sniper'
+                ? '#ffb703'
+                : kind === 'warden'
+                ? '#b5179e'
+                : kind === 'boss'
+                ? '#ff0054'
+                : '#00f5ff';
+            const radius =
+              kind === 'boss'
+                ? 54
+                : kind === 'warden'
+                ? 24
+                : kind === 'splitter' || kind === 'spawner'
+                ? 22
+                : kind === 'bomber' || kind === 'shielder'
+                ? 18
+                : kind === 'sniper'
+                ? 17
+                : kind === 'mini'
+                ? 10
+                : 15;
+            next.push({
+              id,
+              kind,
+              x,
+              y,
+              vx,
+              vy,
+              angle: 0,
+              radius,
+              hp,
+              maxHp,
+              speed: 140,
+              color,
+              xpValue: 12,
+              scoreValue: 100,
+              shootTimer: 2,
+              aimTimer: 0,
+              aimAngle: 0,
+              hitFlash: 0,
+              spin: kind === 'boss' ? 0.6 : 2,
+            });
+          }
+        }
+        this.enemyTargets = nextTargets;
         this.enemies = next;
       }
+    }
+  }
+
+  private getTargetFor(x: number, y: number): { x: number; y: number; vx: number; vy: number } {
+    const p = this.player;
+    const rp = this.remotePlayer;
+    if (this.coopRole === 'host' && this.mode === 'coop' && rp.connected && !rp.down) {
+      const dLocal = p.hp > 0 ? Math.hypot(p.x - x, p.y - y) : Infinity;
+      const dRemote = Math.hypot(rp.x - x, rp.y - y);
+      if (dRemote < dLocal) {
+        return { x: rp.x, y: rp.y, vx: rp.vx, vy: rp.vy };
+      }
+    }
+    return { x: p.x, y: p.y, vx: p.vx, vy: p.vy };
+  }
+
+  private pushEnemyBullet(
+    x: number,
+    y: number,
+    vx: number,
+    vy: number,
+    radius: number,
+    damage: number,
+    life: number,
+    color: string
+  ): void {
+    this.bullets.push({
+      x,
+      y,
+      vx,
+      vy,
+      radius,
+      damage,
+      isEnemy: true,
+      pierceLeft: 0,
+      ricochetLeft: 0,
+      life,
+      color,
+      trail: [],
+      hitIds: new Set(),
+    });
+    if (this.coopRole === 'host' && this.mode === 'coop' && this.remotePlayer.connected) {
+      this.pendingCoopEBullets.push([
+        Math.round(x),
+        Math.round(y),
+        Math.round(vx),
+        Math.round(vy),
+        radius,
+        Math.round(damage),
+        Math.round(life * 10),
+        color,
+      ]);
+    }
+  }
+
+  private updateCoopRemote(dt: number): void {
+    if (this.coopRole === 'none' || !this.remotePlayer.connected) return;
+    if (this.remoteTarget.initialized) {
+      this.remoteTarget.x = Math.max(
+        24,
+        Math.min(this.arenaW - 24, this.remoteTarget.x + this.remoteTarget.vx * dt)
+      );
+      this.remoteTarget.y = Math.max(
+        24,
+        Math.min(this.arenaH - 24, this.remoteTarget.y + this.remoteTarget.vy * dt)
+      );
+      const alpha = 1 - Math.exp(-16 * dt);
+      this.remotePlayer.x += (this.remoteTarget.x - this.remotePlayer.x) * alpha;
+      this.remotePlayer.y += (this.remoteTarget.y - this.remotePlayer.y) * alpha;
+
+      let diff = this.remoteTarget.angle - this.remotePlayer.angle;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      this.remotePlayer.angle += diff * alpha;
+    }
+
+    if (this.pendingCoopPBullets.length > 0 || this.pendingCoopSlash) {
+      this.callbacks.onCoopEvent?.({
+        type: 'coop_fire',
+        b: this.pendingCoopPBullets,
+        slash: this.pendingCoopSlash,
+      });
+      this.pendingCoopPBullets = [];
+      this.pendingCoopSlash = null;
+    }
+    if (this.pendingCoopEBullets.length > 0) {
+      this.callbacks.onCoopEvent?.({
+        type: 'coop_efire',
+        b: this.pendingCoopEBullets,
+      });
+      this.pendingCoopEBullets = [];
     }
   }
 
@@ -919,6 +1204,15 @@ export class AetherGame {
     this.pendingSpawns = [];
     this.hullSparkTimer = 0;
     this.dashWasCooling = false;
+    this.coopSeq = 0;
+    this.lastRemoteSeq = 0;
+    this.remoteTarget = { x: 1200, y: 900, vx: 0, vy: 0, angle: 0, initialized: false };
+    this.enemyTargets.clear();
+    this.teamXpEarned = 0;
+    this.appliedHostXp = 0;
+    this.pendingCoopEBullets = [];
+    this.pendingCoopPBullets = [];
+    this.pendingCoopSlash = null;
 
     this.cryoZones = [
       { x: 640, y: 540, radius: 195 },
@@ -935,6 +1229,9 @@ export class AetherGame {
       this.player.y = 900;
       this.player.maxHp = 200;
       this.player.hp = 200;
+    } else if (!attractMode && this.mode === 'coop') {
+      this.player.x = this.coopRole === 'host' ? 1130 : 1270;
+      this.player.y = 900;
     }
 
     if (!attractMode && this.profile) {
@@ -1388,6 +1685,7 @@ export class AetherGame {
     }
 
     this.updatePlayer(dt, isTitle);
+    this.updateCoopRemote(dt);
     this.updateSpawning(dt, isTitle);
     this.updateEnemies(dt, isTitle);
     this.updateBullets(dt, isTitle);
@@ -1672,6 +1970,8 @@ export class AetherGame {
         ? 2
         : 1;
     const dmg = this.stats.damage * (isCrit ? 1.9 : 1) * zoneMult;
+    const isCoopClientVisual = this.coopRole === 'guest' && this.mode === 'coop';
+    const shouldSyncShot = this.state === 'playing' && !isEcho && this.coopRole !== 'none' && this.remotePlayer.connected;
 
     if (shipId === 'blade') {
       if (this.slashArcs.length >= 6) this.slashArcs.shift();
@@ -1683,15 +1983,20 @@ export class AetherGame {
         life: 0.16,
         maxLife: 0.16,
       });
-      for (const e of [...this.enemies]) {
-        if (e.hp <= 0) continue;
-        const d = Math.hypot(e.x - p.x, e.y - p.y);
-        if (d <= 112 + e.radius) {
-          let diff = Math.atan2(e.y - p.y, e.x - p.x) - p.angle;
-          while (diff > Math.PI) diff -= Math.PI * 2;
-          while (diff < -Math.PI) diff += Math.PI * 2;
-          if (Math.abs(diff) <= 1.15) {
-            this.damageEnemy(e, dmg * 1.15, !silent, isCrit);
+      if (shouldSyncShot && isCoopClientVisual) {
+        this.pendingCoopSlash = [Math.round(p.x), Math.round(p.y), Number(p.angle.toFixed(2)), Math.round(dmg * 1.15)];
+      }
+      if (!isCoopClientVisual) {
+        for (const e of [...this.enemies]) {
+          if (e.hp <= 0) continue;
+          const d = Math.hypot(e.x - p.x, e.y - p.y);
+          if (d <= 112 + e.radius) {
+            let diff = Math.atan2(e.y - p.y, e.x - p.x) - p.angle;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            if (Math.abs(diff) <= 1.15) {
+              this.damageEnemy(e, dmg * 1.15, !silent, isCrit);
+            }
           }
         }
       }
@@ -1713,14 +2018,19 @@ export class AetherGame {
         const offset =
           count === 1 ? 0 : (i - (count - 1) / 2) * (this.stats.spreadAngle / Math.max(1, count - 1));
         const a = p.angle + offset;
+        const bx = p.x + Math.cos(a) * 22;
+        const by = p.y + Math.sin(a) * 22;
+        const bvx = Math.cos(a) * (this.stats.projectileSpeed * 0.78);
+        const bvy = Math.sin(a) * (this.stats.projectileSpeed * 0.78);
         this.bullets.push({
-          x: p.x + Math.cos(a) * 22,
-          y: p.y + Math.sin(a) * 22,
-          vx: Math.cos(a) * (this.stats.projectileSpeed * 0.78),
-          vy: Math.sin(a) * (this.stats.projectileSpeed * 0.78),
+          x: bx,
+          y: by,
+          vx: bvx,
+          vy: bvy,
           radius: 5.5,
           damage: dmg * 0.8,
           isEnemy: false,
+          isVisualOnly: isCoopClientVisual,
           isCrit,
           pierceLeft: this.stats.pierce + 1,
           ricochetLeft: this.stats.ricochet,
@@ -1729,6 +2039,21 @@ export class AetherGame {
           trail: [],
           hitIds: new Set(),
         });
+        if (shouldSyncShot) {
+          this.pendingCoopPBullets.push([
+            Math.round(bx),
+            Math.round(by),
+            Math.round(bvx),
+            Math.round(bvy),
+            5.5,
+            Math.round(dmg * 0.8),
+            isCrit ? 1 : 0,
+            this.stats.pierce + 1,
+            this.stats.ricochet,
+            7,
+            '#ff2a85',
+          ]);
+        }
       }
     } else {
       for (let i = 0; i < count; i++) {
@@ -1737,23 +2062,43 @@ export class AetherGame {
         const a = p.angle + offset;
         const muzzleX = p.x + Math.cos(a) * 20;
         const muzzleY = p.y + Math.sin(a) * 20;
+        const bvx = Math.cos(a) * this.stats.projectileSpeed;
+        const bvy = Math.sin(a) * this.stats.projectileSpeed;
+        const radius = isCrit ? 5.6 : 4.2;
+        const color = p.overclockTimer > 0 ? '#ffb703' : isCrit ? this.theme.accent : this.theme.primary;
 
         this.bullets.push({
           x: muzzleX,
           y: muzzleY,
-          vx: Math.cos(a) * this.stats.projectileSpeed,
-          vy: Math.sin(a) * this.stats.projectileSpeed,
-          radius: isCrit ? 5.6 : 4.2,
+          vx: bvx,
+          vy: bvy,
+          radius,
           damage: dmg,
           isEnemy: false,
+          isVisualOnly: isCoopClientVisual,
           isCrit,
           pierceLeft: this.stats.pierce,
           ricochetLeft: this.stats.ricochet,
           life: 1.5,
-          color: p.overclockTimer > 0 ? '#ffb703' : isCrit ? this.theme.accent : this.theme.primary,
+          color,
           trail: [],
           hitIds: new Set(),
         });
+        if (shouldSyncShot) {
+          this.pendingCoopPBullets.push([
+            Math.round(muzzleX),
+            Math.round(muzzleY),
+            Math.round(bvx),
+            Math.round(bvy),
+            radius,
+            Math.round(dmg),
+            isCrit ? 1 : 0,
+            this.stats.pierce,
+            this.stats.ricochet,
+            15,
+            color,
+          ]);
+        }
       }
     }
 
@@ -1860,21 +2205,48 @@ export class AetherGame {
   private updateEnemies(dt: number, isTitle: boolean): void {
     const p = this.player;
 
+    if (this.coopRole === 'guest' && this.mode === 'coop') {
+      const alpha = 1 - Math.exp(-16 * dt);
+      for (const e of this.enemies) {
+        if (e.hitFlash > 0) e.hitFlash = Math.max(0, e.hitFlash - dt * 6);
+        e.angle += e.spin * dt;
+        const tgt = this.enemyTargets.get(e.id);
+        if (tgt) {
+          tgt.x += tgt.vx * dt;
+          tgt.y += tgt.vy * dt;
+          e.x += (tgt.x - e.x) * alpha;
+          e.y += (tgt.y - e.y) * alpha;
+        } else {
+          e.x += e.vx * dt;
+          e.y += e.vy * dt;
+        }
+        e.x = Math.max(e.radius + 16, Math.min(this.arenaW - e.radius - 16, e.x));
+        e.y = Math.max(e.radius + 16, Math.min(this.arenaH - e.radius - 16, e.y));
+
+        if (!isTitle && p.invulnTimer <= 0 && Math.hypot(e.x - p.x, e.y - p.y) < e.radius + p.radius - 3) {
+          const contactDmg = e.kind === 'boss' ? 24 : this.wave <= 2 ? 11 : 16;
+          this.damagePlayer(contactDmg);
+        }
+      }
+      return;
+    }
+
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const e = this.enemies[i];
       if (e.hitFlash > 0) e.hitFlash = Math.max(0, e.hitFlash - dt * 6);
       e.angle += e.spin * dt;
 
-      const dx = p.x - e.x;
-      const dy = p.y - e.y;
+      const target = this.getTargetFor(e.x, e.y);
+      const dx = target.x - e.x;
+      const dy = target.y - e.y;
       const dist = Math.hypot(dx, dy) || 1;
       const dirX = dx / dist;
       const dirY = dy / dist;
 
       if (e.kind === 'swarmer') {
         const lead = (e.flankSign || 1) > 0 ? 0.42 : 0.15;
-        const tx = p.x + p.vx * lead - e.x;
-        const ty = p.y + p.vy * lead - e.y;
+        const tx = target.x + target.vx * lead - e.x;
+        const ty = target.y + target.vy * lead - e.y;
         const tLen = Math.hypot(tx, ty) || 1;
         const tDirX = tx / tLen;
         const tDirY = ty / tLen;
@@ -1897,6 +2269,14 @@ export class AetherGame {
             if (!isTitle) sound.playExplosion(1.2);
             if (!isTitle && p.invulnTimer <= 0 && Math.hypot(p.x - e.x, p.y - e.y) < 115) {
               this.damagePlayer(22);
+            }
+            if (!isTitle && this.coopRole === 'host' && this.mode === 'coop' && this.remotePlayer.connected) {
+              this.callbacks.onCoopEvent?.({
+                type: 'coop_boom',
+                x: Math.round(e.x),
+                y: Math.round(e.y),
+                dmg: 22,
+              });
             }
             continue;
           }
@@ -1936,24 +2316,19 @@ export class AetherGame {
           e.aimTimer -= dt;
           // Lead during first 0.62s, lock solid for final 0.36s
           if (e.aimTimer > 0.36) {
-            e.aimAngle = Math.atan2(p.y + p.vy * 0.26 - e.y, p.x + p.vx * 0.26 - e.x);
+            e.aimAngle = Math.atan2(target.y + target.vy * 0.26 - e.y, target.x + target.vx * 0.26 - e.x);
           }
           if (e.aimTimer <= 0) {
-            this.bullets.push({
-              x: e.x,
-              y: e.y,
-              vx: Math.cos(e.aimAngle) * 860,
-              vy: Math.sin(e.aimAngle) * 860,
-              radius: 5.5,
-              damage: 20,
-              isEnemy: true,
-              pierceLeft: 0,
-              ricochetLeft: 0,
-              life: 2.2,
-              color: '#ffb703',
-              trail: [],
-              hitIds: new Set(),
-            });
+            this.pushEnemyBullet(
+              e.x,
+              e.y,
+              Math.cos(e.aimAngle) * 860,
+              Math.sin(e.aimAngle) * 860,
+              5.5,
+              20,
+              2.2,
+              '#ffb703'
+            );
             e.shootTimer = 2.5;
           }
         } else {
@@ -1981,41 +2356,13 @@ export class AetherGame {
             const count = 6;
             for (let k = 0; k < count; k++) {
               const a = e.angle + (k * Math.PI * 2) / count;
-              this.bullets.push({
-                x: e.x,
-                y: e.y,
-                vx: Math.cos(a) * 310,
-                vy: Math.sin(a) * 310,
-                radius: 5,
-                damage: 14,
-                isEnemy: true,
-                pierceLeft: 0,
-                ricochetLeft: 0,
-                life: 3.2,
-                color: '#e0aaff',
-                trail: [],
-                hitIds: new Set(),
-              });
+              this.pushEnemyBullet(e.x, e.y, Math.cos(a) * 310, Math.sin(a) * 310, 5, 14, 3.2, '#e0aaff');
             }
           } else {
             const baseA = Math.atan2(dy, dx);
             for (const off of [-0.22, 0, 0.22]) {
               const a = baseA + off;
-              this.bullets.push({
-                x: e.x,
-                y: e.y,
-                vx: Math.cos(a) * 350,
-                vy: Math.sin(a) * 350,
-                radius: 5.5,
-                damage: 15,
-                isEnemy: true,
-                pierceLeft: 0,
-                ricochetLeft: 0,
-                life: 2.8,
-                color: '#ff70a6',
-                trail: [],
-                hitIds: new Set(),
-              });
+              this.pushEnemyBullet(e.x, e.y, Math.cos(a) * 350, Math.sin(a) * 350, 5.5, 15, 2.8, '#ff70a6');
             }
           }
         }
@@ -2046,41 +2393,13 @@ export class AetherGame {
                 const arms = 10;
                 for (let k = 0; k < arms; k++) {
                   const a = e.phase * 2.5 + (k * Math.PI * 2) / arms;
-                  this.bullets.push({
-                    x: e.x,
-                    y: e.y,
-                    vx: Math.cos(a) * 380,
-                    vy: Math.sin(a) * 380,
-                    radius: 6,
-                    damage: 17,
-                    isEnemy: true,
-                    pierceLeft: 0,
-                    ricochetLeft: 0,
-                    life: 3.4,
-                    color: '#ff0054',
-                    trail: [],
-                    hitIds: new Set(),
-                  });
+                  this.pushEnemyBullet(e.x, e.y, Math.cos(a) * 380, Math.sin(a) * 380, 6, 17, 3.4, '#ff0054');
                 }
               } else {
                 const baseA = Math.atan2(dy, dx);
                 for (let s = -3; s <= 3; s++) {
                   const a = baseA + s * 0.14;
-                  this.bullets.push({
-                    x: e.x,
-                    y: e.y,
-                    vx: Math.cos(a) * 410,
-                    vy: Math.sin(a) * 410,
-                    radius: 6,
-                    damage: 18,
-                    isEnemy: true,
-                    pierceLeft: 0,
-                    ricochetLeft: 0,
-                    life: 3.0,
-                    color: '#ffb703',
-                    trail: [],
-                    hitIds: new Set(),
-                  });
+                  this.pushEnemyBullet(e.x, e.y, Math.cos(a) * 410, Math.sin(a) * 410, 6, 18, 3.0, '#ffb703');
                 }
               }
             } else if (hpRatio < 0.6) {
@@ -2100,41 +2419,13 @@ export class AetherGame {
               if (step % 2 === 0) {
                 for (let s = -2; s <= 2; s++) {
                   const a = baseA + s * 0.16;
-                  this.bullets.push({
-                    x: e.x,
-                    y: e.y,
-                    vx: Math.cos(a) * 380,
-                    vy: Math.sin(a) * 380,
-                    radius: 6,
-                    damage: 16,
-                    isEnemy: true,
-                    pierceLeft: 0,
-                    ricochetLeft: 0,
-                    life: 3.2,
-                    color: '#ffb703',
-                    trail: [],
-                    hitIds: new Set(),
-                  });
+                  this.pushEnemyBullet(e.x, e.y, Math.cos(a) * 380, Math.sin(a) * 380, 6, 16, 3.2, '#ffb703');
                 }
               } else {
                 const arms = 8;
                 for (let k = 0; k < arms; k++) {
                   const a = e.phase * 2.1 + (k * Math.PI * 2) / arms;
-                  this.bullets.push({
-                    x: e.x,
-                    y: e.y,
-                    vx: Math.cos(a) * 350,
-                    vy: Math.sin(a) * 350,
-                    radius: 6,
-                    damage: 16,
-                    isEnemy: true,
-                    pierceLeft: 0,
-                    ricochetLeft: 0,
-                    life: 3.4,
-                    color: '#ff0054',
-                    trail: [],
-                    hitIds: new Set(),
-                  });
+                  this.pushEnemyBullet(e.x, e.y, Math.cos(a) * 350, Math.sin(a) * 350, 6, 16, 3.4, '#ff0054');
                 }
               }
             } else {
@@ -2144,41 +2435,13 @@ export class AetherGame {
                 const baseA = Math.atan2(dy, dx);
                 for (let s = -2; s <= 2; s++) {
                   const a = baseA + s * 0.15;
-                  this.bullets.push({
-                    x: e.x,
-                    y: e.y,
-                    vx: Math.cos(a) * 380,
-                    vy: Math.sin(a) * 380,
-                    radius: 6,
-                    damage: 16,
-                    isEnemy: true,
-                    pierceLeft: 0,
-                    ricochetLeft: 0,
-                    life: 3.2,
-                    color: '#ffb703',
-                    trail: [],
-                    hitIds: new Set(),
-                  });
+                  this.pushEnemyBullet(e.x, e.y, Math.cos(a) * 380, Math.sin(a) * 380, 6, 16, 3.2, '#ffb703');
                 }
               } else {
                 const arms = 8;
                 for (let k = 0; k < arms; k++) {
                   const a = e.phase * 1.9 + (k * Math.PI * 2) / arms;
-                  this.bullets.push({
-                    x: e.x,
-                    y: e.y,
-                    vx: Math.cos(a) * 340,
-                    vy: Math.sin(a) * 340,
-                    radius: 6,
-                    damage: 16,
-                    isEnemy: true,
-                    pierceLeft: 0,
-                    ricochetLeft: 0,
-                    life: 3.5,
-                    color: '#ff0054',
-                    trail: [],
-                    hitIds: new Set(),
-                  });
+                  this.pushEnemyBullet(e.x, e.y, Math.cos(a) * 340, Math.sin(a) * 340, 6, 16, 3.5, '#ff0054');
                 }
               }
             }
@@ -2327,7 +2590,7 @@ export class AetherGame {
       }
 
       let consumed = false;
-      if (!isTitle && this.mode === 'pvp' && this.remotePlayer.connected && !this.remotePlayer.down) {
+      if (!isTitle && !b.isVisualOnly && this.mode === 'pvp' && this.remotePlayer.connected && !this.remotePlayer.down) {
         if (Math.hypot(b.x - this.remotePlayer.x, b.y - this.remotePlayer.y) < b.radius + 18) {
           this.callbacks.onPvpHit?.(b.damage);
           this.spawnParticles(b.x, b.y, 6, '#ff2a85', 180);
@@ -2335,7 +2598,7 @@ export class AetherGame {
           continue;
         }
       }
-      if (!isTitle && this.courier && Math.hypot(b.x - this.courier.x, b.y - this.courier.y) < b.radius + 22) {
+      if (!isTitle && !b.isVisualOnly && this.courier && Math.hypot(b.x - this.courier.x, b.y - this.courier.y) < b.radius + 22) {
         this.courier.hp -= b.damage;
         this.spawnParticles(b.x, b.y, 5, '#ffd166', 180);
         this.bullets.splice(i, 1);
@@ -2358,23 +2621,28 @@ export class AetherGame {
         if (e.hp <= 0 || b.hitIds.has(e.id)) continue;
         if (Math.hypot(b.x - e.x, b.y - e.y) < b.radius + e.radius) {
           b.hitIds.add(e.id);
-          let finalDmg = b.damage;
-          if (e.kind === 'shielder') {
-            const inAngle = Math.atan2(b.y - e.y, b.x - e.x);
-            if (Math.cos(inAngle - e.aimAngle) > 0.35) {
-              finalDmg *= 0.25;
-              this.spawnParticles(b.x, b.y, 4, '#70e0ff', 150);
-              if (this.state === 'playing' && Math.random() < 0.22) {
-                this.addFloatingText(e.x, e.y - e.radius - 6, 'БЛОК', '#70e0ff', 0.9);
+          if (b.isVisualOnly) {
+            e.hitFlash = 1;
+            this.spawnParticles(b.x, b.y, b.isCrit ? 6 : 3, e.color, 150);
+          } else {
+            let finalDmg = b.damage;
+            if (e.kind === 'shielder') {
+              const inAngle = Math.atan2(b.y - e.y, b.x - e.x);
+              if (Math.cos(inAngle - e.aimAngle) > 0.35) {
+                finalDmg *= 0.25;
+                this.spawnParticles(b.x, b.y, 4, '#70e0ff', 150);
+                if (this.state === 'playing' && Math.random() < 0.22) {
+                  this.addFloatingText(e.x, e.y - e.radius - 6, 'БЛОК', '#70e0ff', 0.9);
+                }
               }
             }
-          }
-          this.damageEnemy(e, finalDmg, !isTitle, b.isCrit);
+            this.damageEnemy(e, finalDmg, !isTitle, b.isCrit);
 
-          if (this.stats.chainLightning > 0) {
-            const range = this.stats.evoStorm ? 380 : 220;
-            const mult = this.stats.evoStorm ? 0.62 : 0.42;
-            this.triggerChainLightning(e, this.stats.chainLightning, finalDmg * mult, !isTitle, range);
+            if (this.stats.chainLightning > 0) {
+              const range = this.stats.evoStorm ? 380 : 220;
+              const mult = this.stats.evoStorm ? 0.62 : 0.42;
+              this.triggerChainLightning(e, this.stats.chainLightning, finalDmg * mult, !isTitle, range);
+            }
           }
 
           if (b.pierceLeft > 0) {
@@ -2507,6 +2775,9 @@ export class AetherGame {
 
       const mult = Math.min(8, 1 + Math.floor(this.combo / 5));
       this.score += e.scoreValue * mult;
+      if (this.coopRole === 'host' && this.mode === 'coop') {
+        this.teamXpEarned += e.xpValue;
+      }
       this.player.novaCharge = Math.min(100, this.player.novaCharge + (isBoss ? 50 : 4));
 
       if (this.stats.vampiricChance > 0 && Math.random() < this.stats.vampiricChance) {

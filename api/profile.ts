@@ -59,16 +59,21 @@ function verifyTelegramInitData(initData: string, botToken: string): VerifiedTg 
 }
 
 export default async function handler(req: ApiReq, res: ApiRes): Promise<void> {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-tg-init-data');
   if (req.method === 'OPTIONS') {
-    res.setHeader('Allow', 'GET, POST, OPTIONS');
     res.status(204).end();
     return;
   }
 
-  const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
-  const supabaseKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
-  const botToken = process.env.TELEGRAM_BOT_TOKEN || '';
+  const supabaseUrl = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').trim();
+  const supabaseKey = (
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    ''
+  ).trim();
+  const botToken = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
 
   if (req.method === 'GET') {
     const rawHeader = req.headers['x-tg-init-data'];

@@ -105,6 +105,7 @@ let lastRunScore = 0;
 let lastRunEarnedShards = 0;
 let doubledShardsUsed = false;
 let coopSyncTimer: number | null = null;
+let pendingScoreSubmit: Promise<void> | null = null;
 let selectedSoloMode: GameMode = 'classic';
 let selectedOnlineMode: 'coop' | 'pvp' = 'coop';
 let activeLbTab: 'daily' | 'all' | 'friends' | 'clans' | 'local' = 'daily';
@@ -309,6 +310,9 @@ const game = new AetherGame(canvas, {
   onPvpHit: (dmg) => {
     coop.send({ type: 'pvp_hit', dmg });
   },
+  onCoopEvent: (pkt) => {
+    coop.send(pkt);
+  },
   onAchievement: unlockAchievement,
   onAbyssChoice: () => {
     pauseScreen.classList.add('hidden');
@@ -385,10 +389,10 @@ function startCoopMatch(role: 'host' | 'guest', onlineMode: 'coop' | 'pvp'): voi
   trackEvent('run_start', { mode: onlineMode, ship: profile.selectedShip }, profile.playerId);
   stopCoopLoop();
   coopSyncTimer = window.setInterval(() => {
-    if (game.state === 'playing' && coop.isConnected) {
-      coop.send(game.getCoopSyncPacket());
+    if (game.state !== 'title' && game.state !== 'gameover' && coop.isConnected) {
+      coop.sendState(game.getCoopSyncPacket());
     }
-  }, 50);
+  }, 45);
 }
 
 function stopCoopLoop(): void {
@@ -1272,7 +1276,7 @@ function handleGameOver(summary: {
 
   const shipDef = SHIP_CLASSES.find((s) => s.id === profile.selectedShip) || SHIP_CLASSES[0];
   void submitYandexLeaderboardScore(summary.score);
-  void submitGlobalScore(
+  pendingScoreSubmit = submitGlobalScore(
     {
       player_id: profile.playerId,
       callsign: profile.callsign,
@@ -1284,7 +1288,7 @@ function handleGameOver(summary: {
       duration_sec: summary.durationSec,
     },
     tgInitData
-  );
+  ).then(() => {});
 
   trackEvent(
     'run_end',
@@ -1368,6 +1372,9 @@ async function renderScoresModal(): Promise<void> {
 
   if (activeLbTab === 'clans') {
     container.innerHTML = '<p style="color:var(--text-dim);padding:20px;">Загрузка эскадрилий...</p>';
+    if (pendingScoreSubmit) {
+      await pendingScoreSubmit.catch(() => {});
+    }
     const clans = await fetchClanLeaderboard(profile.clanTag);
     if (clans.length === 0) {
       container.innerHTML =
@@ -1387,6 +1394,9 @@ async function renderScoresModal(): Promise<void> {
   }
 
   container.innerHTML = '<p style="color:var(--text-dim);padding:20px;">Загрузка рейтинга...</p>';
+  if (pendingScoreSubmit) {
+    await pendingScoreSubmit.catch(() => {});
+  }
   const filterMode = activeLbTab === 'friends' ? 'friends' : activeLbTab === 'daily' ? 'daily' : 'all';
   const rows = await fetchGlobalLeaderboard(filterMode, profile.playerId, profile.callsign, profile.friends);
   if (rows.length === 0) {
